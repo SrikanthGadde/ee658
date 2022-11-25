@@ -55,6 +55,10 @@ lev()
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <iostream>
+#include <cstring>
+#include <string>
+using namespace std;
 
 #define MAXLINE 81               /* Input buffer size */
 #define MAXNAME 31               /* File name size */
@@ -69,7 +73,7 @@ enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
 
 struct cmdstruc {
    char name[MAXNAME];        /* command syntax */
-   int (*fptr)();             /* function pointer of the commands */
+   int (*fptr)(char *cp);             /* function pointer of the commands */
    enum e_state state;        /* execution state sequence */
 };
 
@@ -86,7 +90,9 @@ typedef struct n_struc {
 
 /*----------------- Command definitions ----------------------------------*/
 #define NUMFUNCS 4
-int cread(), pc(), help(), quit();
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp);
+void allocate(), clear();
+string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
    {"READ", cread, EXEC},
    {"PC", pc, CKTLD},
@@ -123,6 +129,7 @@ description:
 main()
 {
    enum e_com com;
+   int com_int;
    char cline[MAXLINE], wstr[MAXLINE], *cp;
 
    while(!Done) {
@@ -136,7 +143,8 @@ main()
       }
       cp = cline + strlen(wstr);
       com = READ;
-      while(com < NUMFUNCS && strcmp(wstr, command[com].name)) com++;
+      com_int = 0;
+      while(com_int < NUMFUNCS && strcmp(wstr, command[com].name)) com = static_cast<e_com>(com_int++);
       if(com < NUMFUNCS) {
          if(command[com].state <= Gstate) (*command[com].fptr)(cp);
          else printf("Execution out of sequence!\n");
@@ -163,8 +171,7 @@ description:
   set up the circuit information. These procedures may be simplified in
   the future.
 -----------------------------------------------------------------------*/
-cread(cp)
-char *cp;
+int cread(char *cp)
 {
    char buf[MAXLINE];
    int ntbl, *tbl, i, j, k, nd, tp, fo, fi, ni = 0, no = 0;
@@ -174,7 +181,7 @@ char *cp;
    sscanf(cp, "%s", buf);
    if((fd = fopen(buf,"r")) == NULL) {
       printf("File %s does not exist!\n", buf);
-      return;
+      return 1;
    }
    if(Gstate >= CKTLD) clear();
    Nnodes = Npi = Npo = ntbl = 0;
@@ -236,6 +243,8 @@ char *cp;
    fclose(fd);
    Gstate = CKTLD;
    printf("==> OK\n");
+
+   return 0;
 }
 
 /*-----------------------------------------------------------------------
@@ -245,12 +254,11 @@ called by: main
 description:
   The routine prints out the circuit description from previous READ command.
 -----------------------------------------------------------------------*/
-pc(cp)
-char *cp;
+int pc(char *cp)
 {
    int i, j;
    NSTRUC *np;
-   char *gname();
+   // char *gname();
    
    printf(" Node   Type \tIn     \t\t\tOut    \n");
    printf("------ ------\t-------\t\t\t-------\n");
@@ -258,7 +266,7 @@ char *cp;
       np = &Node[i];
       printf("\t\t\t\t\t");
       for(j = 0; j<np->fout; j++) printf("%d ",np->dnodes[j]->num);
-      printf("\r%5d  %s\t", np->num, gname(np->type));
+      printf("\r%5d  %s\t", np->num, gname(np->type).c_str());
       for(j = 0; j<np->fin; j++) printf("%d ",np->unodes[j]->num);
       printf("\n");
    }
@@ -271,6 +279,8 @@ char *cp;
    printf("Number of nodes = %d\n", Nnodes);
    printf("Number of primary inputs = %d\n", Npi);
    printf("Number of primary outputs = %d\n", Npo);
+
+   return 0;
 }
 
 /*-----------------------------------------------------------------------
@@ -280,7 +290,7 @@ called by: main
 description:
   The routine prints ot help inormation for each command.
 -----------------------------------------------------------------------*/
-help()
+int help(char *cp)
 {
    printf("READ filename - ");
    printf("read in circuit file and creat all data structures\n");
@@ -290,6 +300,8 @@ help()
    printf("print this help information\n");
    printf("QUIT - ");
    printf("stop and exit\n");
+
+   return 0;
 }
 
 /*-----------------------------------------------------------------------
@@ -299,9 +311,11 @@ called by: main
 description:
   Set Done to 1 which will terminates the program.
 -----------------------------------------------------------------------*/
-quit()
+int quit(char *cp)
 {
    Done = 1;
+   
+   return 0;
 }
 
 /*======================================================================*/
@@ -315,7 +329,7 @@ description:
   before reading in new one. It frees up the dynamic arrays Node.unodes,
   Node.dnodes, Node.flist, Node, Pinput, Poutput, and Tap.
 -----------------------------------------------------------------------*/
-clear()
+void clear()
 {
    int i;
 
@@ -339,7 +353,7 @@ description:
   Node.flist, Node, Pinput, Poutput, and Tap. It also set the default
   tap selection and the fanin and fanout to 0.
 -----------------------------------------------------------------------*/
-allocate()
+void allocate()
 {
    int i;
 
@@ -360,8 +374,7 @@ description:
   The routine receive an integer gate type and return the gate type in
   character string.
 -----------------------------------------------------------------------*/
-char *gname(tp)
-int tp;
+string gname(int tp)
 {
    switch(tp) {
       case 0: return("PI");
