@@ -56,8 +56,12 @@ lev()
 #include <ctype.h>
 #include <stdlib.h>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <map>
 using namespace std;
 
 #define MAXLINE 81               /* Input buffer size */
@@ -66,7 +70,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -85,12 +89,12 @@ typedef struct n_struc {
    unsigned fout;             /* number of fanouts */
    struct n_struc **unodes;   /* pointer to array of up nodes */
    struct n_struc **dnodes;   /* pointer to array of down nodes */
-   int level;                 /* level of the gate output */
+   int value;                 /* value of the gate output */
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 4
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp);
+#define NUMFUNCS 5
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -98,6 +102,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"PC", pc, CKTLD},
    {"HELP", help, EXEC},
    {"QUIT", quit, EXEC},
+   {"LOGICSIM", logicsim, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -109,6 +114,7 @@ int Nnodes;                     /* number of nodes */
 int Npi;                        /* number of primary inputs */
 int Npo;                        /* number of primary outputs */
 int Done = 0;                   /* status bit to terminate program */
+vector<int> node_queue;
 /*------------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------
@@ -206,6 +212,7 @@ int cread(char *cp)
    while(fscanf(fd, "%d %d", &tp, &nd) != EOF) {
       np = &Node[tbl[nd]];
       np->num = nd;
+      np->value = -1;
       if(tp == PI) Pinput[ni++] = np;
       else if(tp == PO) Poutput[no++] = np;
       switch(tp) {
@@ -284,6 +291,225 @@ int pc(char *cp)
 }
 
 /*-----------------------------------------------------------------------
+input: output_values (initial - may be empty), also uses the node_queue
+output: output_values (after evaluation)
+called by: logicsim
+description:
+  Event-Driven Simulation
+  The routine evaluates the circuit and returns the PO values for the updated PI values.
+-----------------------------------------------------------------------*/
+map<int,int> eval_gates (map<int,int> &output_values) {
+
+   int i, j, old_value;
+   NSTRUC *np;
+
+   //now, go through the elements in the node_queue and evaluate
+   while(node_queue.size() > 0) {
+      np = &Node[node_queue[0]];    // read the node data
+      old_value = np->value;     // save old value (to be compared with evaluated value to determine if the value has changed)
+      switch(np->type) {
+         case 0:  // PI
+            for (i = 0; i < np->fout; i++) {
+                  node_queue.push_back(np->dnodes[i]->indx); // add downstream elements to the queue
+               }
+            break;      
+         case 1:  // BRANCH
+            np->value = np->unodes[0]->value;
+            break;
+         case 2:  // XOR
+            np->value = np->unodes[0]->value; 
+            for (j = 1; j < np->fin; j++) {
+               if (np->value == -1 || np->unodes[j]->value == -1) {
+                  np->value = -1;
+                  break;
+               }
+               else {
+                  np->value = np->value ^ np->unodes[j]->value;
+               }
+            }
+            break; 
+         case 3:  // OR
+            np->value = 0;  
+            for (j = 0; j < np->fin; j++) {
+               if (np->unodes[j]->value == 1) {
+                  np->value = 1;
+                  break;
+               }
+               else if (np->unodes[j]->value == -1) {
+                  np->value = -1;
+               }
+            } 
+            break;
+         case 4:  // NOR
+            np->value = 1;    
+            for (j = 0; j < np->fin; j++) {
+               if (np->unodes[j]->value == 1) {
+                  np->value = 0;
+                  break;
+               }
+               else if (np->unodes[j]->value == -1) {
+                  np->value = -1;
+               }
+            }
+            break; 
+         case 5: // NOT
+            if (np->unodes[0]->value == -1) {
+               np->value = -1;
+            }
+            else {
+               np->value = !(np->unodes[0]->value); 
+            }
+            break; 
+         case 6:  // NAND
+            np->value = 0;    
+            for (j = 0; j < np->fin; j++) {
+               if (np->unodes[j]->value == 0) {
+                  np->value = 1;
+                  break;
+               }
+               else if (np->unodes[j]->value == -1) {
+                  np-> value = -1;
+               }
+            }
+            break; 
+         case 7:  // AND
+            np->value = 1;    
+            for (j = 0; j < np->fin; j++) {
+               if (np->unodes[j]->value == 0) {
+                  np->value = 0;
+                  break;
+               }
+               else if (np->unodes[j]->value == -1) {
+                  np-> value = -1;
+               }
+            }
+            break; 
+      }
+
+      node_queue.erase(node_queue.begin());  // remove the first element as it has been evaluated
+      if (old_value != np->value || old_value == -1) {
+         for (i = 0; i < np->fout; i++) {
+            node_queue.push_back(np->dnodes[i]->indx); // add downstream elements to the queue
+         }
+      }
+
+      if (np->fout == 0) {
+         output_values[np->num] = np->value;    // modify the updated PO value
+      }
+   }
+
+   return output_values;
+}
+
+/*-----------------------------------------------------------------------
+input: PI pattern file
+output: PO output file
+called by: main
+description:
+  The routine evaluates the circuit and prints the PO values into a file.
+-----------------------------------------------------------------------*/
+int logicsim(char *cp)
+{
+   int i, j;
+   NSTRUC *np;
+   char in_buf[MAXLINE], out_buf[MAXLINE];
+   sscanf(cp, "%s %s", in_buf, out_buf);
+
+   vector<vector<int> > input_patterns;
+   vector<int> input_pattern_line;
+
+   ifstream input_file;
+   input_file.open(in_buf);
+   string input_line, token;
+   if ( input_file.is_open() ) {
+      while ( input_file ) {
+         getline (input_file, input_line);   // read line from pattern file
+         stringstream X(input_line);
+         while (getline(X, token, ',')) {
+            input_pattern_line.push_back(stoi(token));   // create a vector of ints with all elements in the line
+         }
+         input_patterns.push_back(input_pattern_line);
+         input_pattern_line.clear();
+      }
+      input_file.close();
+   }
+   else {
+      cout << "Couldn't open file\n";
+   }
+
+   map<int, int> output_values;     // dictionary to hold PO values
+
+   ofstream output_file;
+   output_file.open(out_buf);
+
+   // event driven simulation
+   int k, l;
+   for (k = 1; k < input_patterns.size()-1; k++) {    // iterate over all the rows
+      // cout << "Iterating over row " << k << endl; 
+      for (i = 0; i < input_patterns[0].size(); i++) {     // iterate over all the PIs in the Kth row
+         // cout << "Evaluating PI " << input_patterns[0][i] << endl;
+         for (j = 0; j < Nnodes; j++){    // iterate over all the nodes
+            if (Node[j].num == input_patterns[0][i]) {
+               // cout << "Previous value of PI is " << input_patterns[k-1][i] << " - New value is " << input_patterns[k][i] << endl;
+               Node[j].value = input_patterns[k][i];
+               if (k == 1) {
+                  node_queue.push_back(j);
+                  // cout << Node[j].num << endl;
+               } else if (input_patterns[k-1][i] != input_patterns[k][i]) {
+                  for (l = 0; l < Node[j].fout; l++) {
+                     node_queue.push_back(Node[j].dnodes[l]->indx); // add elements downstream of PI to the queue
+                  }
+               }
+               break;
+            }
+         }
+      }
+
+      output_values = eval_gates(output_values);      // function call to evaluate the circuit
+
+      // print outputs
+      // for( map<int, int>::iterator i= output_values.begin(); i != output_values.end(); i++)
+      // {
+      //    cout << (*i).first << ": " << (*i).second << endl;
+      // }
+
+      if ( output_file ) {
+         // PO node numbers
+         if ( k == 1) {
+            i = 0;
+            for (auto const& element : output_values) {
+               if (i == 1) {
+                  output_file << ",";
+               }
+               i = 1;
+               output_file << element.first;
+            }
+            output_file << endl;
+         }
+         // PO values
+         i = 0;
+         for (auto const& element : output_values) {
+            if (i == 1) {
+               output_file << ",";
+            }
+            i = 1;
+            output_file << element.second;
+         }
+         output_file << endl;
+      }
+      else {
+         cout << "Couldn't create file\n";
+      }
+
+   }
+   cout << "OK" << endl;
+   return 0;
+}
+
+
+
+
+/*-----------------------------------------------------------------------
 input: nothing
 output: nothing
 called by: main 
@@ -340,6 +566,7 @@ void clear()
    free(Node);
    free(Pinput);
    free(Poutput);
+   node_queue.clear();
    Gstate = EXEC;
 }
 
