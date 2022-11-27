@@ -70,7 +70,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -93,8 +93,8 @@ typedef struct n_struc {
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 5
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp);
+#define NUMFUNCS 6
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -103,6 +103,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"HELP", help, EXEC},
    {"QUIT", quit, EXEC},
    {"LOGICSIM", logicsim, CKTLD},
+   {"RFL", rfl, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -507,7 +508,51 @@ int logicsim(char *cp)
 }
 
 
+/*-----------------------------------------------------------------------
+input: none
+output: PO output file
+called by: main
+description:
+  The routine reduces the fault list using the checkpoint theorem.
+-----------------------------------------------------------------------*/
+int rfl(char *cp)
+{
+   int i, j;
+   NSTRUC *np;
 
+   char out_buf[MAXLINE];
+   sscanf(cp, "%s", out_buf);
+
+   vector<pair<int, int> > fault_list;     // dictionary to hold PO values
+   pair<int,int> fault;    // temporarily holds the faults
+
+   ofstream output_file;
+   output_file.open(out_buf);
+
+   // checkpoint theorem
+   for (i = 0; i < Nnodes; i++){    // iterate over all the nodes
+      np = &Node[i];
+      if (np->type == 0 || np->type == 1) {     // check if the node type is PI or BRANCH
+         fault.first = np->num;
+         for (j = 0; j < 2; j++) {     // assign value of 0 and 1 to the faulty node
+            fault.second = j; 
+            fault_list.push_back(fault);     // add the fault to the fault_list
+         }
+      }
+   }
+
+   // write to file
+   if ( output_file ) {
+      for (i = 0; i < fault_list.size(); i++) {
+         output_file << fault_list[i].first << "@" << fault_list[i].second << endl;
+      }
+   } else {
+      cout << "Couldn't create file\n";
+   }
+
+   cout << "OK" << endl;
+   return 0;
+}
 
 /*-----------------------------------------------------------------------
 input: nothing
