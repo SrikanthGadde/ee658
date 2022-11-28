@@ -62,6 +62,9 @@ lev()
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
+#include <bitset>
+#include <utility>
 using namespace std;
 
 #define MAXLINE 81               /* Input buffer size */
@@ -70,7 +73,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -89,12 +92,13 @@ typedef struct n_struc {
    unsigned fout;             /* number of fanouts */
    struct n_struc **unodes;   /* pointer to array of up nodes */
    struct n_struc **dnodes;   /* pointer to array of down nodes */
+   int level;                   /* level of the gate output */
    int value;                 /* value of the gate output */
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 6
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp);
+#define NUMFUNCS 7
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -104,6 +108,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"QUIT", quit, EXEC},
    {"LOGICSIM", logicsim, CKTLD},
    {"RFL", rfl, CKTLD},
+   {"PFS", pfs, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -507,7 +512,6 @@ int logicsim(char *cp)
    return 0;
 }
 
-
 /*-----------------------------------------------------------------------
 input: none
 output: PO output file
@@ -557,6 +561,258 @@ int rfl(char *cp)
 /*-----------------------------------------------------------------------
 input: nothing
 output: nothing
+called by: pfs
+description:
+  The routine levelizes the previously read circuit and pushes nodes into the node_queue in the order of evaluation.
+-----------------------------------------------------------------------*/
+void lev()
+{
+   int i,j,k,l,level;
+   int Nodes_done =0;
+   NSTRUC *np;
+   node_queue.clear();
+
+   // Start with primary inputs
+   for(i=0; i<Nnodes; i++){
+	np=&Node[i];
+      if(np->type==0){
+         np->level=0;
+         node_queue.push_back(np->indx);
+         Nodes_done++;
+      }
+      else{
+        np->level = -1;
+      }
+  }
+   // All primary inputs have now been assigned level 0
+   // All other nodes are at level -1 (undefined)
+
+   while(Nodes_done!=Nnodes){
+      for(j=0; j<Nnodes; j++){
+         np=&Node[j];
+         if(np->level == -1) {    // Node is at an undefined level
+            if((np->type == 1) && (np->unodes[0]->level != -1)) {     // Node is a branch and upstream node is not at undefined level
+               np->level=np->unodes[0]->level+1;
+               node_queue.push_back(np->indx);
+               Nodes_done++;				 
+            }
+            else if(np->type>1) {    // Node is a gate
+               int flag=1;
+               level=0;
+               for(k=0; k<np->fin; k++) {
+                  if(np->unodes[k]->level != -1){
+                     if (np->unodes[k]->level>level) {      // upstream node is not at undefined level and at a greater level than recorded level
+                        level=np->unodes[k]->level;
+                     }
+                  }
+                  else {
+                     flag=0;	
+                     break;
+                  }
+               }
+               if (flag==1){
+                  np->level=level+1;
+                  node_queue.push_back(np->indx);
+                  Nodes_done++;
+               }
+            }
+         }
+      }
+   }
+}
+
+/*-----------------------------------------------------------------------
+input: test patterns, fault list
+output: detectable faults list
+called by: main
+description:
+  The routine evaluates the circuit and determines the faults that can be detected for a given test pattern.
+  - levlize and add nodes to node_queue
+  - for each row in input pattern file read input pattern to update values
+  -- get the fault list vector<pair<int,int>>
+  -- for each iteration (faults/width of int)
+  --- create a vector<pair<int,int>> of 32/64 to represent each bit and the corresponding fault
+  --- evaluate each node - return an int
+  --- check if the node is in the fault list (read the fault list)
+  --- = if in the fault list, then modify the corresponding bit
+  --- store each node as an int in a map<int,int> (node->num, bits vector)
+-----------------------------------------------------------------------*/
+int pfs(char *cp)
+{
+   int i, j;
+   NSTRUC *np;
+   char in_pattern_buf[MAXLINE], in_faults_buf[MAXLINE], out_buf[MAXLINE];
+   sscanf(cp, "%s %s %s", in_pattern_buf, in_faults_buf, out_buf);
+
+   // read input patterns
+   vector<vector<int> > input_patterns;
+   vector<int> input_pattern_line;
+   ifstream input_file;
+   input_file.open(in_pattern_buf);
+   string input_line, token;
+   if ( input_file.is_open() ) {
+      while ( input_file ) {
+         getline (input_file, input_line);   // read line from pattern file
+         stringstream X(input_line);
+         while (getline(X, token, ',')) {
+            input_pattern_line.push_back(stoi(token));
+         }
+         input_patterns.push_back(input_pattern_line);
+         input_pattern_line.clear();
+      }
+      input_file.close();
+   }
+   else {
+      cout << "Couldn't open file\n";
+   }
+
+   // read fault list
+   vector<pair<int,int> > fault_list;
+   pair<int,int> fault;
+   ifstream fault_file;
+   fault_file.open(in_faults_buf);
+   string fault_line;
+   if ( fault_file.is_open() ) {
+      while ( fault_file ) {
+         getline (fault_file, fault_line);   // read line from fault list file
+         stringstream X(fault_line);
+         i = 0;
+         while (getline(X, token, '@')) {
+            if (i == 0 ) {
+               fault.first = (stoi(token));
+               i = 1;
+            } else {
+               fault.second = stoi(token);
+            }
+         }
+         if (fault_line != "") {
+            fault_list.push_back(fault);
+         }
+      }
+      fault_file.close();
+   }
+   else {
+      cout << "Couldn't open file\n";
+   }
+
+   // levelize
+   lev();
+
+   set<pair<int,int> > detected_faults;     // stores the final faults to be written out
+   vector<pair<int,int> > bit_faults;      // stores the bit position of each fault
+   bitset<sizeof(int)*8> value;     // used to easily manipulate bits in the value
+   int k, l, m;
+   int expected_value;
+   for (k = 1; k < input_patterns.size()-1; k++) {    // iterate over all the rows of test patterns
+      // iterate over the faults and add to the respective bit position
+      for (l = 0; l < fault_list.size(); l = l + (sizeof(int)*8) - 1) {
+         bit_faults.clear();
+         bit_faults.push_back(make_pair(-1,-1));      // 0th element is used for fault-free circuit
+         for (m = 0; (m < (sizeof(int)*8)-1 && m < (fault_list.size() - ((sizeof(int)*8)-1)*l)); m++) {
+            bit_faults.push_back(fault_list[l+m]);
+         }
+         // evaluate the gates and inject faults
+         for (i = 0; i < input_patterns[0].size(); i++) {     // iterate over all the PIs in the Kth row
+            for (j = 0; j < Nnodes; j++){    // iterate over all the nodes
+               if (Node[j].num == input_patterns[0][i]) {      // set PI to input pattern
+                  if (input_patterns[k][i] == 0) {
+                     value.reset();
+                  } else {
+                     value.set();
+                  }
+                  Node[j].value = value.to_ulong();
+               }
+            }
+         }
+
+         NSTRUC *np;
+         //now, go through the elements in the node_queue and evaluate
+         for (i = 0; i < node_queue.size(); i++) {
+            np = &Node[node_queue[i]];    // read the node data
+            switch(np->type) {
+               case 0:  // PI
+                  break;      
+               case 1:  // BRANCH
+                  np->value = np->unodes[0]->value;
+                  break;
+               case 2:  // XOR
+                  np->value = np->unodes[0]->value; 
+                  for (j = 1; j < np->fin; j++) {
+                     np->value = np->value ^ np->unodes[j]->value;
+                  }
+                  break; 
+               case 3:  // OR
+                  np->value = 0;  
+                  for (j = 0; j < np->fin; j++) {
+                     np->value = np->value | np->unodes[j]->value;
+                  } 
+                  break;
+               case 4:  // NOR
+                  np->value = 0;    
+                  for (j = 0; j < np->fin; j++) {
+                     np->value = np->value | np->unodes[j]->value;
+                  }
+                  np->value = ~np->value;
+                  break; 
+               case 5: // NOT
+                  np->value = ~(np->unodes[0]->value); 
+                  break; 
+               case 6:  // NAND
+                  np->value = -1;      // initialize all bit positions to 1
+                  for (j = 0; j < np->fin; j++) {
+                     np->value = np->value & np->unodes[j]->value;
+                  }
+                  np->value = ~np->value;
+                  break; 
+               case 7:  // AND
+                  np->value = -1;      // initialize all bit positions to 1
+                  for (j = 0; j < np->fin; j++) {
+                     np->value = np->value & np->unodes[j]->value;
+                  }
+                  break; 
+            }
+
+            // inject fault
+            value = bitset<sizeof(int)*8>(np->value);
+
+            // check if node has fault in bit_faults
+            for (j = 0; j<bit_faults.size(); j++) {
+               if (bit_faults[j].first == np->num) {
+                  value.set(j,bit_faults[j].second);
+               }
+            }
+            np->value = value.to_ulong();
+            if (np->fout == 0) {
+               expected_value = value[0];
+               for (j = 1; j < sizeof(int)*8; j++) {
+                  if (value.test(j) != expected_value) {
+                     detected_faults.insert(bit_faults[j]);
+                  }
+               }
+            }
+         }
+      }
+   }
+   
+   ofstream output_file;
+   output_file.open(out_buf);
+
+   if ( output_file ) {
+      for (auto const& element : detected_faults) {
+         output_file << element.first << "@" << element.second << endl;
+      }
+   }
+   else {
+      cout << "Couldn't create file\n";
+   }
+
+   cout << "OK" << endl;
+   return 0;
+}
+
+/*-----------------------------------------------------------------------
+input: nothing
+output: nothing
 called by: main 
 description:
   The routine prints ot help inormation for each command.
@@ -566,7 +822,17 @@ int help(char *cp)
    printf("READ filename - ");
    printf("read in circuit file and creat all data structures\n");
    printf("PC - ");
-   printf("print circuit information\n");
+   printf("print circuit information\n\n");
+   printf("The following commands are expecting that the folders for phase-2 can easily be accessed from the working directory\n\n");
+   printf("LOGICSIM - ");
+   printf("simulate the logic\n");
+   printf("> logicsim LOGICSIM/c17test.txt c17.out\n");
+   printf("RFL - ");
+   printf("reduces the fault list - prints the RFL to the output file (c17_rfl.out in the following command)\n");
+   printf("> rfl c17_rfl.out\n");
+   printf("PFS - ");
+   printf("performs parallel fault simulation\n");
+   printf("> pfs P_D_FS/input/c17_test_in.txt RFL/c17_rfl.txt c17.out\n");
    printf("HELP - ");
    printf("print this help information\n");
    printf("QUIT - ");
