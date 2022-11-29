@@ -56,6 +56,7 @@ lev()
 #include <ctype.h>
 #include <stdlib.h>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -73,7 +74,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -97,8 +98,8 @@ typedef struct n_struc {
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 7
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp);
+#define NUMFUNCS 8
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -109,6 +110,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"LOGICSIM", logicsim, CKTLD},
    {"RFL", rfl, CKTLD},
    {"PFS", pfs, CKTLD},
+   {"RTG", rtg, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -657,7 +659,9 @@ int pfs(char *cp)
          while (getline(X, token, ',')) {
             input_pattern_line.push_back(stoi(token));
          }
-         input_patterns.push_back(input_pattern_line);
+         if (input_line != "") {
+            input_patterns.push_back(input_pattern_line);
+         }
          input_pattern_line.clear();
       }
       input_file.close();
@@ -703,7 +707,7 @@ int pfs(char *cp)
    bitset<sizeof(int)*8> value;     // used to easily manipulate bits in the value
    int k, l, m;
    int expected_value;
-   for (k = 1; k < input_patterns.size()-1; k++) {    // iterate over all the rows of test patterns
+   for (k = 1; k < input_patterns.size(); k++) {    // iterate over all the rows of test patterns
       // iterate over the faults and add to the respective bit position
       for (l = 0; l < fault_list.size(); l = l + (sizeof(int)*8) - 1) {
          bit_faults.clear();
@@ -811,6 +815,179 @@ int pfs(char *cp)
 }
 
 /*-----------------------------------------------------------------------
+input: none
+output: PO output file
+called by: main
+description:
+  The routine generates random test patterns
+-----------------------------------------------------------------------*/
+int rtg(char *cp)
+{
+   int i, j;
+   NSTRUC *np;
+
+   char ntot_buf[MAXLINE], nTFCR_buf[MAXLINE], test_pattern_buf[MAXLINE], fc_buf[MAXLINE];
+   sscanf(cp, "%s %s %s %s", ntot_buf, nTFCR_buf, test_pattern_buf,fc_buf);
+
+   int ntot = stoi(ntot_buf);
+   int nTFCR = stoi(nTFCR_buf);
+
+   vector<pair<int, int> > fault_list;     // dictionary to hold PO values
+   pair<int,int> fault;    // temporarily holds the faults
+
+   vector<int> PI;
+   vector<int> input_values;
+   vector<vector<int> > test_patterns;
+
+   // get all faults
+   for (i = 0; i < Nnodes; i++){    // iterate over all the nodes
+      np = &Node[i];
+
+      // add to PI vector
+      if (np->fin == 0) {
+         PI.push_back(np->num);
+      }
+
+      // add faults
+      fault.first = np->num;
+      for (j = 0; j < 2; j++) {     // assign value of 0 and 1 to the faulty node
+         fault.second = j; 
+         fault_list.push_back(fault);     // add the fault to the fault_list
+      }
+   }
+
+   ofstream output_test_pattern_file;
+   output_test_pattern_file.open(test_pattern_buf);
+   // print test patterns to a file
+   int flag = 0;
+   if ( output_test_pattern_file ) {
+      for (i = 0; i < PI.size(); i++) {
+         if (flag == 0) {
+            output_test_pattern_file << PI[i];
+            flag = 1;
+         } else {
+            output_test_pattern_file << "," << PI[i];
+         }
+      }
+      flag = 0;
+      output_test_pattern_file << endl;
+   } else {
+      cout << "Couldn't create file\n";
+   }
+   
+   ofstream output_fc_file;
+   output_fc_file.open(fc_buf);
+
+   set<pair<int,int> > detected_faults;
+
+   int test_patterns_generated = 0;
+   srand(time(0));
+   while (test_patterns_generated != ntot) {
+      test_patterns.clear();
+      test_patterns.push_back(PI);
+      for (i = 0; i < nTFCR; i++) {
+         for (j = 0; j < PI.size(); j++) {
+            input_values.push_back(rand()%2);
+         }
+         test_patterns_generated++;
+         test_patterns.push_back(input_values);
+         input_values.clear();
+      }
+      
+      // write the fault list and test patterns to temp files inorder to pass them to PFS
+      ofstream output_file;
+      output_file.open("fault_list_temp.txt");
+      if ( output_file ) {
+         for (i = 0; i < fault_list.size(); i++) {
+            output_file << fault_list[i].first << "@" << fault_list[i].second << endl;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+      
+      flag = 0;
+      output_file.open("test_pattern_temp.txt");
+      if ( output_file ) {
+         for (i = 0; i < test_patterns.size(); i++) {
+            for (j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_file << "," << test_patterns[i][j];
+               }
+            }
+            output_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+
+      string pfs_arguments = "test_pattern_temp.txt fault_list_temp.txt detected_faults_temp.txt";
+      pfs(strdup(pfs_arguments.c_str()));
+
+      // read fault list
+      ifstream fault_file;
+      fault_file.open("detected_faults_temp.txt");
+      string fault_line, token;
+      if ( fault_file.is_open() ) {
+         while ( fault_file ) {
+            getline (fault_file, fault_line);   // read line from fault list file
+            stringstream X(fault_line);
+            i = 0;
+            while (getline(X, token, '@')) {
+               if (i == 0 ) {
+                  fault.first = (stoi(token));
+                  i = 1;
+               } else {
+                  fault.second = stoi(token);
+               }
+            }
+            if (fault_line != "") {
+               detected_faults.insert(fault);
+            }
+         }
+         fault_file.close();
+      }
+      else {
+         cout << "Couldn't open file\n";
+      }
+
+      // print test patterns to a file
+      flag = 0;
+      if ( output_test_pattern_file ) {
+         for (i = 1; i < test_patterns.size(); i++) {
+            for (j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_test_pattern_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_test_pattern_file << "," << test_patterns[i][j];
+               }
+            }
+            output_test_pattern_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+
+      // print FC report
+      if ( output_fc_file ) {
+         output_fc_file << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
+      } else {
+         cout << "Couldn't create file\n";
+      }
+
+   }
+   cout << "OK" << endl;
+   return 0;
+}
+
+/*-----------------------------------------------------------------------
 input: nothing
 output: nothing
 called by: main 
@@ -833,6 +1010,9 @@ int help(char *cp)
    printf("PFS - ");
    printf("performs parallel fault simulation\n");
    printf("> pfs P_D_FS/input/c17_test_in.txt RFL/c17_rfl.txt c17.out\n");
+   printf("RTG - ");
+   printf("generates random test patterns and calculates FC\n");
+   printf("> rtg ntot nTFCR test_patterns.out fc.out\n");
    printf("HELP - ");
    printf("print this help information\n");
    printf("QUIT - ");
