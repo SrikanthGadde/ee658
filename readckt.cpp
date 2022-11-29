@@ -52,6 +52,16 @@ lev()
 }
 =======================================================================*/
 
+#include <algorithm>
+#include <cstring>
+#include <ctype.h>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <map>
+#include <set>
+#include <sstream>
+
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -74,7 +84,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG, DFS};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -95,11 +105,12 @@ typedef struct n_struc {
    struct n_struc **dnodes;   /* pointer to array of down nodes */
    int level;                   /* level of the gate output */
    int value;                 /* value of the gate output */
+   int f_value;
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 8
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp);
+#define NUMFUNCS 9
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -111,6 +122,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"RFL", rfl, CKTLD},
    {"PFS", pfs, CKTLD},
    {"RTG", rtg, CKTLD},
+   {"DFS", dfs, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -621,6 +633,216 @@ void lev()
          }
       }
    }
+}
+
+
+int dfs(char *cp) {
+
+  int i, j;
+  NSTRUC *np;
+  // vector<pair<int, int> > fault_list;
+  set<pair<int, int>> det_fault_list; // set / insert
+  pair<int, int> f_val;
+
+  char in_buf[MAXLINE], out_buf[MAXLINE];
+  sscanf(cp, "%s %s", in_buf, out_buf);
+  logicsim(cp);
+  lev();
+  // ofstream output_file;
+  // output_file.open(out_buf);
+  // rfl(in_buf);
+  for (i = 0; i < node_queue.size(); i++) {
+    np = &Node[node_queue[i]];
+    ;
+    if (np->type == 0) {
+      f_val.first = np->num;
+      if (np->value == 0) {
+        f_val.second = 1;
+        np->f_value = 1;
+        det_fault_list.insert(f_val);
+      } else {
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      }
+    } else if (np->type == 1) {     // branch
+      f_val.first = np->num;
+      f_val.second = np->unodes[0]->f_value;
+      np->f_value = np->unodes[0]->f_value;
+      det_fault_list.insert(f_val);
+    } else if (np->type == 2) {     // xor
+      // xor or nor not nand and
+      for (j = 0; j < np->fin; j++) {
+        f_val.first = np->unodes[j]->num;
+        f_val.second = np->unodes[j]->f_value;
+        det_fault_list.insert(f_val);
+      }
+      f_val.first = np->num;
+      if (np->value == 0) {
+        f_val.second = 1;
+        np->f_value = 1;
+      } else {
+        f_val.second = 0;
+        np->f_value = 0;
+      }
+      det_fault_list.insert(f_val);
+    } else if (np->type == 3) {     // or
+      if (np->value == 0) {
+        f_val.second = 1;
+        np->f_value = 1;
+        for (j = 0; j < np->fin; j++) {
+          f_val.first = np->unodes[j]->num;
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        det_fault_list.insert(f_val);
+      } else {
+        int count = 0;
+        for (j = 0; j < np->fin; j++) {
+          if (np->unodes[j]->value == 1) {
+            f_val.first = np->unodes[j]->num;
+            f_val.second = 0;
+            count++;
+          }
+        }
+        if (count == 1) {
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      }
+    } else if (np->type == 4) {     // nor
+      if (np->value == 1) {
+        f_val.second = 1;
+        for (j = 0; j < np->fin; j++) {
+          f_val.first = np->unodes[j]->num;
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      } else {
+        int count = 0;
+        for (j = 0; j < np->fin; j++) {
+          if (np->unodes[j]->value == 1) {
+            f_val.first = np->unodes[j]->num;
+            f_val.second = 1;
+            count++;
+          }
+        }
+        if (count == 1) {
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 1;
+        np->f_value = 1;
+        det_fault_list.insert(f_val);
+      }
+    } else if (np->type == 5) {     // not    
+      f_val.first = np->unodes[0]->num;
+      if (np->unodes[0]->value == 0) {
+        f_val.second = 1;
+        det_fault_list.insert(f_val);
+        f_val.first = np->num;
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      } else {
+        f_val.second = 0;
+        det_fault_list.insert(f_val);
+        f_val.first = np->num;
+        f_val.second = 1;
+        np->f_value = 1;
+        det_fault_list.insert(f_val);
+      }
+    } else if (np->type == 6) {     // nand
+      if (np->value == 0) {
+        f_val.second = 0;
+        for (j = 0; j < np->fin; j++) {
+          f_val.first = np->unodes[j]->num;
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 1;
+        np->f_value = 1;
+        det_fault_list.insert(f_val);
+      } else {
+        int count = 0;
+        for (j = 0; j < np->fin; j++) {
+          if (np->unodes[j]->value == 0) {
+            f_val.first = np->unodes[j]->num;
+            f_val.second = 1;
+            count++;
+          }
+        }
+        if (count == 1) {
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      }
+    } else if (np->type == 7) {         // and
+      if (np->value == 1) {
+        f_val.second = 0;
+        for (j = 0; j < np->fin; j++) {
+          f_val.first = np->unodes[j]->num;
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 0;
+        np->f_value = 0;
+        det_fault_list.insert(f_val);
+      } else {
+        int count = 0;
+        for (j = 0; j < np->fin; j++) {
+          if (np->unodes[j]->value == 0) {
+            f_val.first = np->unodes[j]->num;
+            f_val.second = 1;
+            count++;
+          }
+        }
+        if (count == 1) {
+          det_fault_list.insert(f_val);
+        }
+        f_val.first = np->num;
+        f_val.second = 1;
+        np->f_value = 1;
+        det_fault_list.insert(f_val);
+      }
+    }
+  }
+
+  /*
+  sort(det_fault_list.begin(),det_fault_list.end());
+  vector<int>::iterator it =
+  unique(det_fault_list.begin(),det_fault_list.end());
+  det_fault_list.resize(distance(det_fault_list.begin(),it));
+
+
+      std::vector<pair<int,int> > result; // Will contain the symmetric
+  difference std::set_symmetric_difference(fault_list.begin(), fault_list.end(),
+                                    det_fault_list.begin(),
+  det_fault_list.end(), std::back_inserter(result));
+  */
+  // write to file
+  ofstream output_file;
+  output_file.open(out_buf);
+cout<<"here"<<endl;
+  if (output_file) {
+    for (auto const &element : det_fault_list) {
+      output_file << element.first << "@" << element.second << endl;
+    }
+  } else {
+    cout << "Couldn't create file\n";
+  }
+
+  cout << "OK" << endl;
+  return 0;
 }
 
 /*-----------------------------------------------------------------------
