@@ -638,7 +638,7 @@ void lev()
 
 int dfs(char *cp) {
 
-  int i, j;
+  int i, j, index;
   NSTRUC *np;
   // vector<pair<int, int> > fault_list;
   set<pair<int, int>> det_fault_list; // set / insert
@@ -681,11 +681,11 @@ all_fault[np->indx]=det_fault_list;
 	else if (np->type == 2) {     // xor
       // xor or nor not nand and
       for (j = 0; j < np->fin; j++) {
-        f_val.first = np->unodes[j]->num;
-        f_val.second = np->unodes[j]->f_value;
-det_fault_list = all_fault[np->unodes[0]->indx];
-        det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+       // f_val.first = np->unodes[j]->num;
+        //f_val.second = np->unodes[j]->f_value;
+det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+        //det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
       }
       f_val.first = np->num;
       if (np->value == 0) {
@@ -702,12 +702,13 @@ all_fault[np->indx]=det_fault_list;
 	else if (np->type == 3) {     // or
       if (np->value == 0) {
         f_val.second = 1;
-        np->f_value = 1;
-det_fault_list = all_fault[np->unodes[0]->indx];
+        //np->f_value = 1;
         for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+		det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+
+          //f_val.first = np->unodes[j]->num;
+          //det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         det_fault_list.insert(f_val);
@@ -715,18 +716,21 @@ all_fault[np->indx]=det_fault_list;
       } 
 	  else {
         int count = 0;
-	all_fault.erase(np->indx);
+	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 1) {
             f_val.first = np->unodes[j]->num;
+			index = np->unodes[j]->indx;
             f_val.second = 0;
             count++;
           }
         }
         if (count == 1) {
-det_fault_list = all_fault[np->unodes[0]->indx];
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+
+//det_fault_list.insert(f_val)
+          //det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 0;
@@ -737,12 +741,12 @@ all_fault[np->indx]=det_fault_list;
     } 
 	else if (np->type == 4) {     // nor
       if (np->value == 1) {
-        f_val.second = 1;
-det_fault_list = all_fault[np->unodes[0]->indx];
+        //f_val.second = 1;
         for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+		det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+ //         f_val.first = np->unodes[j]->num;
+   //       det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 0;
@@ -752,18 +756,21 @@ all_fault[np->indx]=det_fault_list;
       } 
 	  else {
         int count = 0;
-	all_fault.erase(np->indx);
+	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 1) {
             f_val.first = np->unodes[j]->num;
-            f_val.second = 1;
+			index = np->unodes[j]->indx;
+            f_val.second = 0;
             count++;
           }
         }
         if (count == 1) {
-det_fault_list = all_fault[np->unodes[0]->indx];
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+//det_fault_list = all_fault[np->unodes[0]->indx];
+		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+
+//          det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 1;
@@ -776,9 +783,9 @@ all_fault[np->indx]=det_fault_list;
       f_val.first = np->unodes[0]->num;
 det_fault_list = all_fault[np->unodes[0]->indx];
       if (np->unodes[0]->value == 0) {
-        f_val.second = 1;
-        det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+        //f_val.second = 1;
+        //det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         f_val.first = np->num;
         f_val.second = 0;
         np->f_value = 0;
@@ -786,9 +793,9 @@ all_fault[np->indx]=det_fault_list;
 all_fault[np->indx]=det_fault_list;
       } 
 	  else {
-        f_val.second = 0;
-        det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+       // f_val.second = 0;
+       // det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         f_val.first = np->num;
         f_val.second = 1;
         np->f_value = 1;
@@ -798,12 +805,12 @@ all_fault[np->indx]=det_fault_list;
     }
 	else if (np->type == 6) {     // nand
       if (np->value == 0) {
-        f_val.second = 0;
-det_fault_list = all_fault[np->unodes[0]->indx];
+  //      f_val.second = 0;
         for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+		det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+//          f_val.first = np->unodes[j]->num;
+//          det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 1;
@@ -813,18 +820,20 @@ all_fault[np->indx]=det_fault_list;
       }
 	  else {
         int count = 0;
-	all_fault.erase(np->indx);
+	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 0) {
             f_val.first = np->unodes[j]->num;
+			index = np->unodes[j]->indx;
             f_val.second = 1;
             count++;
           }
         }
         if (count == 1) {
-det_fault_list = all_fault[np->unodes[0]->indx];
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+//det_fault_list = all_fault[np->unodes[0]->indx];
+		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+          //det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 0;
@@ -836,11 +845,13 @@ all_fault[np->indx]=det_fault_list;
 	else if (np->type == 7) {         // and
       if (np->value == 1) {
         f_val.second = 0;
-det_fault_list = all_fault[np->unodes[0]->indx];
+//det_fault_list = all_fault[np->unodes[0]->indx];
         for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+		det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+
+//          f_val.first = np->unodes[j]->num;
+  //        det_fault_list.insert(f_val);
+//all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 0;
@@ -850,18 +861,20 @@ all_fault[np->indx]=det_fault_list;
       }
 	  else {
         int count = 0;
-	all_fault.erase(np->indx);
+	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 0) {
             f_val.first = np->unodes[j]->num;
+			index = np->unodes[j]->indx;
             f_val.second = 1;
             count++;
           }
         }
         if (count == 1) {
-det_fault_list = all_fault[np->unodes[0]->indx];
-          det_fault_list.insert(f_val);
-all_fault[np->indx]=det_fault_list;
+//det_fault_list = all_fault[np->unodes[0]->indx];
+  //        det_fault_list.insert(f_val);
+ 		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+//all_fault[np->indx]=det_fault_list;
         }
 
         f_val.first = np->num;
