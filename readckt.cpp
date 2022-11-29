@@ -654,6 +654,7 @@ map<int,set<pair<int,int>>> all_fault;
   // output_file.open(out_buf);
   // rfl(in_buf);
   for (i = 0; i < node_queue.size(); i++) {
+    det_fault_list.clear();
     np = &Node[node_queue[i]]; 
     if (np->type == 0) {
       f_val.first = np->num;
@@ -899,11 +900,21 @@ all_fault[np->indx]=det_fault_list;
   det_fault_list.end(), std::back_inserter(result));
   */
   // write to file
+  
+  set<pair<int,int> > final_faults;
+  for (i = 0; i < Nnodes; i++) {
+    if (Node[i].fout == 0) {
+      for (auto const &element : all_fault[i]) {
+        final_faults.insert(element);
+      }
+    }
+  }
+
   ofstream output_file;
   output_file.open(out_buf);
 //cout<<"here"<<endl;
   if (output_file) {
-    for (auto const &element : all_fault[np->indx]) {
+    for (auto const &element : final_faults) {
       output_file << element.first << "@" << element.second << endl;
     }
   } else {
