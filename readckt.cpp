@@ -78,8 +78,8 @@ lev()
 #include <utility>
 using namespace std;
 
-#define MAXLINE 81               /* Input buffer size */
-#define MAXNAME 31               /* File name size */
+#define MAXLINE 1000              /* Input buffer size */
+#define MAXNAME 1000               /* File name size */
 
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
@@ -642,21 +642,79 @@ int dfs(char *cp) {
   NSTRUC *np;
   // vector<pair<int, int> > fault_list;
   set<pair<int, int>> det_fault_list; // set / insert
+  set<pair<int, int>> det_fault_nc_list;
+  set<pair<int, int>> temp_fault_list;
 map<int,set<pair<int,int>>> all_fault;
   pair<int, int> f_val;
   pair<int, int> temp;
+  set<pair<int,int> > final_faults;
 
   char in_buf[MAXLINE], out_buf[MAXLINE];
   sscanf(cp, "%s %s", in_buf, out_buf);
-  logicsim(cp);
+  //logicsim(cp);
+
   lev();
+  //logicsim
+  vector<vector<int> > input_patterns;
+  vector<int> input_pattern_line;
+
+  ifstream input_file;
+  input_file.open(in_buf);
+  string input_line, token;
+  if ( input_file.is_open() ) {
+      while ( input_file ) {
+        getline (input_file, input_line);   // read line from pattern file
+        stringstream X(input_line);
+        while (getline(X, token, ',')) {
+            input_pattern_line.push_back(stoi(token));   // create a vector of ints with all elements in the line
+        }
+        input_patterns.push_back(input_pattern_line);
+        input_pattern_line.clear();
+      }
+      input_file.close();
+  }
+  else {
+      cout << "Couldn't open file\n";
+      return 1;
+  }
+
+  map<int, int> output_values;     // dictionary to hold PO values
+
+  // event driven simulation
+  int k, l;
+  for (k = 1; k < input_patterns.size()-1; k++) {    // iterate over all the rows
+      // cout << "Iterating over row " << k << endl; 
+      for (i = 0; i < input_patterns[0].size(); i++) {     // iterate over all the PIs in the Kth row
+        // cout << "Evaluating PI " << input_patterns[0][i] << endl;
+        for (j = 0; j < Nnodes; j++){    // iterate over all the nodes
+            if (Node[j].num == input_patterns[0][i]) {
+              // cout << "Previous value of PI is " << input_patterns[k-1][i] << " - New value is " << input_patterns[k][i] << endl;
+              Node[j].value = input_patterns[k][i];
+              if (k == 1) {
+                  node_queue.push_back(j);
+                  // cout << Node[j].num << endl;
+              } else if (input_patterns[k-1][i] != input_patterns[k][i]) {
+                  for (l = 0; l < Node[j].fout; l++) {
+                    node_queue.push_back(Node[j].dnodes[l]->indx); // add elements downstream of PI to the queue
+                  }
+              }
+              break;
+            }
+        }
+      }
+
+      output_values = eval_gates(output_values);      // function call to evaluate the circuit
+      all_fault.clear();
+      lev();
   // ofstream output_file;
   // output_file.open(out_buf);
   // rfl(in_buf);
   for (i = 0; i < node_queue.size(); i++) {
     det_fault_list.clear();
+    det_fault_nc_list.clear();
+    temp_fault_list.clear();
     np = &Node[node_queue[i]]; 
-    if (np->type == 0) {
+    if (np->type == 0) {      //PI
       f_val.first = np->num;
       if (np->value == 0) {
         f_val.second = 1;
@@ -680,14 +738,30 @@ det_fault_list = all_fault[np->unodes[0]->indx];
 all_fault[np->indx]=det_fault_list;
     } 
 	else if (np->type == 2) {     // xor
+        // std::set<std::pair<int,int> > temp_set;
+        //  temp_set = all_fault[np->unodes[0]->indx];
+        //  temp_set.insert(std::make_pair(np->num, !np->value));
+        //  temp_set.insert(all_fault[np->unodes[1]->indx].begin(), all_fault[np->unodes[1]->indx].end());
+        //  std::set<std::pair<int, int> > temp_set2, temp_set3;
+        //  set_intersection(all_fault[np->unodes[0]->indx].begin(), all_fault[np->unodes[0]->indx].end(), all_fault[np->unodes[1]->indx].begin(), all_fault[np->unodes[1]->indx].end(), std::inserter(temp_set2, temp_set2.begin()));
+        //  set_difference(temp_set.begin(), temp_set.end(), temp_set2.begin(), temp_set2.end(), std::inserter(temp_set3, temp_set3.begin()));
+        //  all_fault[np->indx] = temp_set3;
       // xor or nor not nand and
+        set<pair<int, int>> temp_fault_list1;
+        set<pair<int, int>> temp_fault_list2;
+      temp_fault_list1.clear();
+      temp_fault_list2.clear();
       for (j = 0; j < np->fin; j++) {
        // f_val.first = np->unodes[j]->num;
         //f_val.second = np->unodes[j]->f_value;
-det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+        det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+        if (j > 0) {
+          set_intersection(all_fault[np->unodes[0]->indx].begin(), all_fault[np->unodes[0]->indx].end(), all_fault[np->unodes[1]->indx].begin(), all_fault[np->unodes[1]->indx].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+        }
         //det_fault_list.insert(f_val);
 //all_fault[np->indx]=det_fault_list;
       }
+
       f_val.first = np->num;
       if (np->value == 0) {
         f_val.second = 1;
@@ -698,6 +772,8 @@ det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unode
         np->f_value = 0;
       }
       det_fault_list.insert(f_val);
+// todo
+      set_difference(det_fault_list.begin(), det_fault_list.end(), temp_fault_list1.begin(), temp_fault_list1.end(), std::inserter(temp_fault_list2, temp_fault_list2.begin()));     
 all_fault[np->indx]=det_fault_list;
     } 
 	else if (np->type == 3) {     // or
@@ -724,10 +800,13 @@ all_fault[np->indx]=det_fault_list;
 			index = np->unodes[j]->indx;
             f_val.second = 0;
             count++;
+          } else {
+            det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
           }
         }
         if (count == 1) {
 		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+    set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
 
 //det_fault_list.insert(f_val)
           //det_fault_list.insert(f_val);
@@ -736,6 +815,7 @@ all_fault[np->indx]=det_fault_list;
         f_val.first = np->num;
         f_val.second = 0;
         np->f_value = 0;
+        det_fault_list = temp_fault_list;
         det_fault_list.insert(f_val);
 all_fault[np->indx]=det_fault_list;
       }
@@ -764,11 +844,14 @@ all_fault[np->indx]=det_fault_list;
 			index = np->unodes[j]->indx;
             f_val.second = 0;
             count++;
+          } else {
+            det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
           }
         }
         if (count == 1) {
 //det_fault_list = all_fault[np->unodes[0]->indx];
 		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+    set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
 
 //          det_fault_list.insert(f_val);
 //all_fault[np->indx]=det_fault_list;
@@ -776,6 +859,7 @@ all_fault[np->indx]=det_fault_list;
         f_val.first = np->num;
         f_val.second = 1;
         np->f_value = 1;
+        det_fault_list = temp_fault_list;
         det_fault_list.insert(f_val);
 all_fault[np->indx]=det_fault_list;
       }
@@ -824,21 +908,24 @@ all_fault[np->indx]=det_fault_list;
 	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 0) {
-            f_val.first = np->unodes[j]->num;
 			index = np->unodes[j]->indx;
-            f_val.second = 1;
             count++;
+          } else {
+            det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
           }
         }
         if (count == 1) {
 //det_fault_list = all_fault[np->unodes[0]->indx];
 		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+    set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
+
           //det_fault_list.insert(f_val);
 //all_fault[np->indx]=det_fault_list;
         }
         f_val.first = np->num;
         f_val.second = 0;
         np->f_value = 0;
+        det_fault_list = temp_fault_list;
         det_fault_list.insert(f_val);
 all_fault[np->indx]=det_fault_list;
       }
@@ -865,22 +952,24 @@ all_fault[np->indx]=det_fault_list;
 	//all_fault.erase(np->indx);
         for (j = 0; j < np->fin; j++) {
           if (np->unodes[j]->value == 0) {
-            f_val.first = np->unodes[j]->num;
-			index = np->unodes[j]->indx;
-            f_val.second = 1;
+			      index = np->unodes[j]->indx;
             count++;
+          } else {
+            det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
           }
         }
         if (count == 1) {
 //det_fault_list = all_fault[np->unodes[0]->indx];
   //        det_fault_list.insert(f_val);
  		det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+          set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
 //all_fault[np->indx]=det_fault_list;
         }
 
         f_val.first = np->num;
         f_val.second = 1;
         np->f_value = 1;
+        det_fault_list = temp_fault_list;
         det_fault_list.insert(f_val);
 all_fault[np->indx]=det_fault_list;
       }
@@ -901,15 +990,15 @@ all_fault[np->indx]=det_fault_list;
   */
   // write to file
   
-  set<pair<int,int> > final_faults;
-  for (i = 0; i < Nnodes; i++) {
-    if (Node[i].fout == 0) {
-      for (auto const &element : all_fault[i]) {
-        final_faults.insert(element);
+
+    for (i = 0; i < Nnodes; i++) {
+      if (Node[i].fout == 0) {
+        for (auto const &element : all_fault[i]) {
+          final_faults.insert(element);
+        }
       }
     }
   }
-
   ofstream output_file;
   output_file.open(out_buf);
 //cout<<"here"<<endl;
