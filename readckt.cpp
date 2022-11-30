@@ -23,33 +23,9 @@
 
 3 PO     outline  2 - 7    0           #_of_fin    inlines
 
+EE658 Project Phase 2
+Group 12
 
-
-
-                                    Author: Chihang Chen
-                                    Date: 9/16/94
-
-=======================================================================*/
-
-/*=======================================================================
-  - Write your program as a subroutine under main().
-    The following is an example to add another command 'lev' under main()
-
-enum e_com {READ, PC, HELP, QUIT, LEV};
-#define NUMFUNCS 5
-int cread(), pc(), quit(), lev();
-struct cmdstruc command[NUMFUNCS] = {
-   {"READ", cread, EXEC},
-   {"PC", pc, CKTLD},
-   {"HELP", help, EXEC},
-   {"QUIT", quit, EXEC},
-   {"LEV", lev, CKTLD},
-};
-
-lev()
-{
-   ...
-}
 =======================================================================*/
 
 #include <algorithm>
@@ -78,8 +54,8 @@ lev()
 #include <utility>
 using namespace std;
 
-#define MAXLINE 81               /* Input buffer size */
-#define MAXNAME 31               /* File name size */
+#define MAXLINE 1000              /* Input buffer size */
+#define MAXNAME 1000               /* File name size */
 
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
@@ -638,211 +614,349 @@ void lev()
 
 int dfs(char *cp) {
 
-  int i, j;
-  NSTRUC *np;
-  // vector<pair<int, int> > fault_list;
-  set<pair<int, int>> det_fault_list; // set / insert
-  pair<int, int> f_val;
+   int i, j, index;
+   NSTRUC *np;
+   // vector<pair<int, int> > fault_list;
+   set<pair<int, int>> det_fault_list; // set / insert
+   set<pair<int, int>> det_fault_nc_list;
+   set<pair<int, int>> temp_fault_list;
+   set<pair<int, int>> temp_fault_list1;
+   set<pair<int, int>> temp_fault_list2;
+   set<pair<int, int>> temp_fault_list3;
+   map<int,set<pair<int,int>>> all_fault;
+   pair<int, int> f_val;
+   pair<int, int> temp;
+   set<pair<int,int> > final_faults;
+   vector<int> control_input_index;
 
-  char in_buf[MAXLINE], out_buf[MAXLINE];
-  sscanf(cp, "%s %s", in_buf, out_buf);
-  logicsim(cp);
-  lev();
-  // ofstream output_file;
-  // output_file.open(out_buf);
-  // rfl(in_buf);
-  for (i = 0; i < node_queue.size(); i++) {
-    np = &Node[node_queue[i]];
-    ;
-    if (np->type == 0) {
-      f_val.first = np->num;
-      if (np->value == 0) {
-        f_val.second = 1;
-        np->f_value = 1;
-        det_fault_list.insert(f_val);
-      } else {
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      }
-    } else if (np->type == 1) {     // branch
-      f_val.first = np->num;
-      f_val.second = np->unodes[0]->f_value;
-      np->f_value = np->unodes[0]->f_value;
-      det_fault_list.insert(f_val);
-    } else if (np->type == 2) {     // xor
-      // xor or nor not nand and
-      for (j = 0; j < np->fin; j++) {
-        f_val.first = np->unodes[j]->num;
-        f_val.second = np->unodes[j]->f_value;
-        det_fault_list.insert(f_val);
-      }
-      f_val.first = np->num;
-      if (np->value == 0) {
-        f_val.second = 1;
-        np->f_value = 1;
-      } else {
-        f_val.second = 0;
-        np->f_value = 0;
-      }
-      det_fault_list.insert(f_val);
-    } else if (np->type == 3) {     // or
-      if (np->value == 0) {
-        f_val.second = 1;
-        np->f_value = 1;
-        for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        det_fault_list.insert(f_val);
-      } else {
-        int count = 0;
-        for (j = 0; j < np->fin; j++) {
-          if (np->unodes[j]->value == 1) {
-            f_val.first = np->unodes[j]->num;
-            f_val.second = 0;
-            count++;
-          }
-        }
-        if (count == 1) {
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      }
-    } else if (np->type == 4) {     // nor
-      if (np->value == 1) {
-        f_val.second = 1;
-        for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      } else {
-        int count = 0;
-        for (j = 0; j < np->fin; j++) {
-          if (np->unodes[j]->value == 1) {
-            f_val.first = np->unodes[j]->num;
-            f_val.second = 1;
-            count++;
-          }
-        }
-        if (count == 1) {
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 1;
-        np->f_value = 1;
-        det_fault_list.insert(f_val);
-      }
-    } else if (np->type == 5) {     // not    
-      f_val.first = np->unodes[0]->num;
-      if (np->unodes[0]->value == 0) {
-        f_val.second = 1;
-        det_fault_list.insert(f_val);
-        f_val.first = np->num;
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      } else {
-        f_val.second = 0;
-        det_fault_list.insert(f_val);
-        f_val.first = np->num;
-        f_val.second = 1;
-        np->f_value = 1;
-        det_fault_list.insert(f_val);
-      }
-    } else if (np->type == 6) {     // nand
-      if (np->value == 0) {
-        f_val.second = 0;
-        for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 1;
-        np->f_value = 1;
-        det_fault_list.insert(f_val);
-      } else {
-        int count = 0;
-        for (j = 0; j < np->fin; j++) {
-          if (np->unodes[j]->value == 0) {
-            f_val.first = np->unodes[j]->num;
-            f_val.second = 1;
-            count++;
-          }
-        }
-        if (count == 1) {
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      }
-    } else if (np->type == 7) {         // and
-      if (np->value == 1) {
-        f_val.second = 0;
-        for (j = 0; j < np->fin; j++) {
-          f_val.first = np->unodes[j]->num;
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 0;
-        np->f_value = 0;
-        det_fault_list.insert(f_val);
-      } else {
-        int count = 0;
-        for (j = 0; j < np->fin; j++) {
-          if (np->unodes[j]->value == 0) {
-            f_val.first = np->unodes[j]->num;
-            f_val.second = 1;
-            count++;
-          }
-        }
-        if (count == 1) {
-          det_fault_list.insert(f_val);
-        }
-        f_val.first = np->num;
-        f_val.second = 1;
-        np->f_value = 1;
-        det_fault_list.insert(f_val);
-      }
-    }
-  }
+   char in_buf[MAXLINE], out_buf[MAXLINE];
+   sscanf(cp, "%s %s", in_buf, out_buf);
+   //logicsim(cp);
 
-  /*
-  sort(det_fault_list.begin(),det_fault_list.end());
-  vector<int>::iterator it =
-  unique(det_fault_list.begin(),det_fault_list.end());
-  det_fault_list.resize(distance(det_fault_list.begin(),it));
+   lev();
+   //logicsim
+   vector<vector<int> > input_patterns;
+   vector<int> input_pattern_line;
+
+   ifstream input_file;
+   input_file.open(in_buf);
+   string input_line, token;
+   if ( input_file.is_open() ) {
+      while ( input_file ) {
+         getline (input_file, input_line);   // read line from pattern file
+         stringstream X(input_line);
+         while (getline(X, token, ',')) {
+            input_pattern_line.push_back(stoi(token));   // create a vector of ints with all elements in the line
+         }
+         input_patterns.push_back(input_pattern_line);
+         input_pattern_line.clear();
+      }
+      input_file.close();
+   }
+   else {
+      cout << "Couldn't open file\n";
+      return 1;
+   }
+
+   map<int, int> output_values;     // dictionary to hold PO values
+
+   // event driven simulation
+   int k, l;
+   for (k = 1; k < input_patterns.size()-1; k++) {    // iterate over all the rows
+      // cout << "Iterating over row " << k << endl; 
+      for (i = 0; i < input_patterns[0].size(); i++) {     // iterate over all the PIs in the Kth row
+         // cout << "Evaluating PI " << input_patterns[0][i] << endl;
+         for (j = 0; j < Nnodes; j++){    // iterate over all the nodes
+            if (Node[j].num == input_patterns[0][i]) {
+               // cout << "Previous value of PI is " << input_patterns[k-1][i] << " - New value is " << input_patterns[k][i] << endl;
+               Node[j].value = input_patterns[k][i];
+               break;
+            }
+         }
+      }
+
+      output_values = eval_gates(output_values);      // function call to evaluate the circuit
+      all_fault.clear();
+      lev();
+
+      for (i = 0; i < node_queue.size(); i++) {
+         det_fault_list.clear();
+         det_fault_nc_list.clear();
+         temp_fault_list.clear();
+         temp_fault_list1.clear();
+         temp_fault_list2.clear();
+         control_input_index.clear();
+         np = &Node[node_queue[i]]; 
+         if (np->type == 0) {      //PI
+            f_val.first = np->num;
+            f_val.second = !np->value;
+            np->f_value = !np->value;
+            det_fault_list.insert(f_val);
+            all_fault[np->indx]=det_fault_list;
+         } 
+         else if (np->type == 1) {     // branch
+            f_val.first = np->num;
+            f_val.second = !np->value;
+            np->f_value = !np->value;
+            det_fault_list = all_fault[np->unodes[0]->indx];
+            det_fault_list.insert(f_val);
+            all_fault[np->indx]=det_fault_list;
+         } 
+         else if (np->type == 2) {     // xor
+            temp_fault_list1.clear();
+            temp_fault_list2.clear();
+            for (j = 0; j < np->fin; j++) {
+               // f_val.first = np->unodes[j]->num;
+               //f_val.second = np->unodes[j]->f_value;
+               det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+               if (j == 0) {
+                  temp_fault_list3 = all_fault[np->unodes[j]->indx];
+               } else {
+                  set_intersection(temp_fault_list3.begin(), temp_fault_list3.end(), all_fault[np->unodes[1]->indx].begin(), all_fault[np->unodes[1]->indx].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+                  temp_fault_list3 = temp_fault_list1;
+               }
+            }
+
+            f_val.first = np->num;
+            if (np->value == 0) {
+               f_val.second = 1;
+               np->f_value = 1;
+            } 
+            else {
+               f_val.second = 0;
+               np->f_value = 0;
+            }
+            det_fault_list.insert(f_val);
+            // todo
+            set_difference(det_fault_list.begin(), det_fault_list.end(), temp_fault_list1.begin(), temp_fault_list1.end(), std::inserter(temp_fault_list2, temp_fault_list2.begin()));     
+            all_fault[np->indx]=temp_fault_list2;
+         } 
+         else if (np->type == 3) {     // or
+            if (np->value == 0) {
+               for (j = 0; j < np->fin; j++) {
+                  det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+               }
+               f_val.second = 1;
+               np->f_value = 1;
+               f_val.first = np->num;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            } 
+            else {
+               int count = 0;
+               //all_fault.erase(np->indx);
+               for (j = 0; j < np->fin; j++) {
+                  if (np->unodes[j]->value == 1) {
+                     if (count == 0) {
+                        index = np->unodes[j]->indx;
+                     } else {
+                        control_input_index.push_back(np->unodes[j]->indx);
+                     }
+                     count++;
+                  } else {
+                     det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+                  }
+               }
+
+               det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+               for (j = 0; j < control_input_index.size(); j++) {
+                  temp_fault_list1.clear();
+                  set_intersection(det_fault_list.begin(), det_fault_list.end(), all_fault[control_input_index[j]].begin(), all_fault[control_input_index[j]].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+                  det_fault_list = temp_fault_list1;
+               }
+               set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
+               f_val.first = np->num;
+               f_val.second = 0;
+               np->f_value = 0;
+               det_fault_list = temp_fault_list;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+         } 
+         else if (np->type == 4) {     // nor
+            if (np->value == 1) {
+               for (j = 0; j < np->fin; j++) {
+                  det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+               }
+               f_val.first = np->num;
+               f_val.second = 0;
+               np->f_value = 0;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            } 
+            else {
+               int count = 0;
+               //all_fault.erase(np->indx);
+               for (j = 0; j < np->fin; j++) {
+                  if (np->unodes[j]->value == 1) {
+                     if (count == 0) {
+                        index = np->unodes[j]->indx;
+                     } else {
+                        control_input_index.push_back(np->unodes[j]->indx);
+                     }
+                     count++;
+                  } else {
+                     det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+                  }
+               }
+
+               det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+               for (j = 0; j < control_input_index.size(); j++) {
+                  temp_fault_list1.clear();
+                  set_intersection(det_fault_list.begin(), det_fault_list.end(), all_fault[control_input_index[j]].begin(), all_fault[control_input_index[j]].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+                  det_fault_list = temp_fault_list1;
+               }    
+               set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
+               f_val.first = np->num;
+               f_val.second = 1;
+               np->f_value = 1;
+               det_fault_list = temp_fault_list;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+         } 
+         else if (np->type == 5) {     // not    
+            det_fault_list = all_fault[np->unodes[0]->indx];
+            f_val.first = np->num;
+            f_val.second = !np->value;
+            np->f_value = !np->value;
+            det_fault_list.insert(f_val);
+            all_fault[np->indx]=det_fault_list;
+         }
+         else if (np->type == 6) {     // nand
+            if (np->value == 0) {
+               //      f_val.second = 0;
+               for (j = 0; j < np->fin; j++) {
+                  det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+               //          f_val.first = np->unodes[j]->num;
+               //          det_fault_list.insert(f_val);
+               //all_fault[np->indx]=det_fault_list;
+               }
+               f_val.first = np->num;
+               f_val.second = 1;
+               np->f_value = 1;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+            else {
+               int count = 0;
+               //all_fault.erase(np->indx);
+               for (j = 0; j < np->fin; j++) {
+                  if (np->unodes[j]->value == 0) {
+                     if (count == 0) {
+                        index = np->unodes[j]->indx;            
+                     } else {
+                        control_input_index.push_back(np->unodes[j]->indx);
+                     }
+                     count++;
+                  } else {
+                     det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+                  }
+               }
+
+               det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+               for (j = 0; j < control_input_index.size(); j++) {
+                  temp_fault_list1.clear();
+                  set_intersection(det_fault_list.begin(), det_fault_list.end(), all_fault[control_input_index[j]].begin(), all_fault[control_input_index[j]].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+                  det_fault_list = temp_fault_list1;
+               }
+               set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
+
+               f_val.first = np->num;
+               f_val.second = 0;
+               np->f_value = 0;
+               det_fault_list = temp_fault_list;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+         } 
+         else if (np->type == 7) {         // and
+            if (np->value == 1) {
+               f_val.second = 0;
+               //det_fault_list = all_fault[np->unodes[0]->indx];
+               for (j = 0; j < np->fin; j++) {
+                  det_fault_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+
+               //          f_val.first = np->unodes[j]->num;
+               //        det_fault_list.insert(f_val);
+               //all_fault[np->indx]=det_fault_list;
+               }
+               f_val.first = np->num;
+               f_val.second = 0;
+               np->f_value = 0;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+            else {
+               int count = 0;
+               //all_fault.erase(np->indx);
+               for (j = 0; j < np->fin; j++) {
+                  if (np->unodes[j]->value == 0) {
+                     if (count == 0) {
+                        index = np->unodes[j]->indx;
+                     } else {
+                        control_input_index.push_back(np->unodes[j]->indx);
+                     }
+                     count++;
+                  } else {
+                     det_fault_nc_list.insert(all_fault[np->unodes[j]->indx].begin(),all_fault[np->unodes[j]->indx].end());
+                  }
+               }
+
+               det_fault_list.insert(all_fault[index].begin(),all_fault[index].end());	
+               for (j = 0; j < control_input_index.size(); j++) {
+                  temp_fault_list1.clear();
+                  set_intersection(det_fault_list.begin(), det_fault_list.end(), all_fault[control_input_index[j]].begin(), all_fault[control_input_index[j]].end(), std::inserter(temp_fault_list1, temp_fault_list1.begin()));
+                  det_fault_list = temp_fault_list1;
+               }
+               set_difference(det_fault_list.begin(), det_fault_list.end(), det_fault_nc_list.begin(), det_fault_nc_list.end(), std::inserter(temp_fault_list, temp_fault_list.begin()));
+
+               f_val.first = np->num;
+               f_val.second = 1;
+               np->f_value = 1;
+               det_fault_list = temp_fault_list;
+               det_fault_list.insert(f_val);
+               all_fault[np->indx]=det_fault_list;
+            }
+         }
+
+      }
+   /*
+   sort(det_fault_list.begin(),det_fault_list.end());
+   vector<int>::iterator it =
+   unique(det_fault_list.begin(),det_fault_list.end());
+   det_fault_list.resize(distance(det_fault_list.begin(),it));
 
 
-      std::vector<pair<int,int> > result; // Will contain the symmetric
-  difference std::set_symmetric_difference(fault_list.begin(), fault_list.end(),
-                                    det_fault_list.begin(),
-  det_fault_list.end(), std::back_inserter(result));
-  */
-  // write to file
-  ofstream output_file;
-  output_file.open(out_buf);
-cout<<"here"<<endl;
-  if (output_file) {
-    for (auto const &element : det_fault_list) {
-      output_file << element.first << "@" << element.second << endl;
-    }
-  } else {
-    cout << "Couldn't create file\n";
-  }
+   std::vector<pair<int,int> > result; // Will contain the symmetric
+   difference std::set_symmetric_difference(fault_list.begin(), fault_list.end(),
+            det_fault_list.begin(),
+   det_fault_list.end(), std::back_inserter(result));
+   */
+   // write to file
 
-  cout << "OK" << endl;
-  return 0;
+
+   for (i = 0; i < Nnodes; i++) {
+   if (Node[i].fout == 0) {
+   for (auto const &element : all_fault[i]) {
+   final_faults.insert(element);
+   }
+   }
+   }
+   }
+   ofstream output_file;
+   output_file.open(out_buf);
+   //cout<<"here"<<endl;
+   if (output_file) {
+   for (auto const &element : final_faults) {
+   output_file << element.first << "@" << element.second << endl;
+   }
+   } else {
+   cout << "Couldn't create file\n";
+   }
+
+   cout << "OK" << endl;
+   return 0;
 }
 
 /*-----------------------------------------------------------------------
@@ -852,6 +966,7 @@ called by: main
 description:
   The routine evaluates the circuit and determines the faults that can be detected for a given test pattern.
   - levlize and add nodes to node_queue
+
   - for each row in input pattern file read input pattern to update values
   -- get the fault list vector<pair<int,int>>
   -- for each iteration (faults/width of int)
@@ -890,6 +1005,7 @@ int pfs(char *cp)
    }
    else {
       cout << "Couldn't open file\n";
+      return 1;
    }
 
    // read fault list
@@ -919,6 +1035,7 @@ int pfs(char *cp)
    }
    else {
       cout << "Couldn't open file\n";
+      return 1;
    }
 
    // levelize
@@ -1030,6 +1147,7 @@ int pfs(char *cp)
    }
    else {
       cout << "Couldn't create file\n";
+      return 1;
    }
 
    cout << "OK" << endl;
