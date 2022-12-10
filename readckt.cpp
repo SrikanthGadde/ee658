@@ -52,6 +52,30 @@ Group 12
 #include <set>
 #include <bitset>
 #include <utility>
+
+// macros for gate types
+#define GATE_PI 0
+#define GATE_BRANCH 1
+#define GATE_XOR 2
+#define GATE_OR 3
+#define GATE_NOR 4
+#define GATE_NOT 5
+#define GATE_NAND 6
+#define GATE_AND 7
+
+// macros for logic
+#define LOGIC_1 1
+#define LOGIC_0 0
+#define LOGIC_X -1
+#define LOGIC_D 2
+#define LOGIC_DBAR 3
+#define LOGIC_UNSET 4
+
+// macros for fault types
+#define NOFAULT   -1
+#define FAULT_SA0 0
+#define FAULT_SA1 1
+
 using namespace std;
 
 #define MAXLINE 1000              /* Input buffer size */
@@ -60,7 +84,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG, DFS};
+enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG, DFS, PODEM};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -82,11 +106,12 @@ typedef struct n_struc {
    int level;                   /* level of the gate output */
    int value;                 /* value of the gate output */
    int f_value;
+   int fault;                 /* logic value of the fault */
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 9
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp);
+#define NUMFUNCS 10
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -99,6 +124,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"PFS", pfs, CKTLD},
    {"RTG", rtg, CKTLD},
    {"DFS", dfs, CKTLD},
+   {"PODEM", podem, CKTLD},
 };
 
 /*------------------------------------------------------------------------*/
@@ -111,6 +137,10 @@ int Npi;                        /* number of primary inputs */
 int Npo;                        /* number of primary outputs */
 int Done = 0;                   /* status bit to terminate program */
 vector<int> node_queue;
+vector<NSTRUC *> dFrontier;
+NSTRUC* faultLocation;
+int faultActivationVal;
+int podem_count = 0;
 /*------------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------
@@ -1325,6 +1355,471 @@ int rtg(char *cp)
    }
    cout << "OK" << endl;
    return 0;
+}
+
+// --------------------------------------------------------Phase 3--------------------------------------------------
+//----------------------------
+// Functions for logic simulation - PODEM imply
+void simFullCircuit();
+void simGateRecursive(NSTRUC* g);
+int simGate(NSTRUC* g);
+int evalGate(vector<int> in, int c, int i);
+int EvalXORGate(vector<int> in, int inv);
+int LogicNot(int logicVal);
+void setValueCheckFault(NSTRUC* g, int gateValue);
+//-----------------------------
+
+//----------------------------
+// Functions for PODEM:
+bool podemRecursion();
+bool getObjective(NSTRUC* &g, int &v);
+void updateDFrontier();
+void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal);
+
+//--------------------------
+// MAIN PODEM
+int podem (char *cp) {
+ 
+   char faultNode_buf[MAXLINE], faultValue_buf[MAXLINE];
+   sscanf(cp, "%s %s", faultNode_buf, faultValue_buf);
+
+   int faultNode = stoi(faultNode_buf);
+   int faultValue = stoi(faultValue_buf);
+   
+   // set all gate values to X
+   for (int i=0; i < Nnodes; i++) {
+      Node[i].fault = NOFAULT;
+      Node[i].value = LOGIC_X;
+      if (Node[i].num == faultNode) {
+         faultLocation = &Node[i];
+         Node[i].fault = faultValue;
+         faultActivationVal = (faultValue == FAULT_SA0) ? LOGIC_1 : LOGIC_0;
+      }
+   }
+
+   // initialize the D frontier.
+   dFrontier.clear();
+
+   // call PODEM recursion function
+   bool res = podemRecursion();
+
+   // If success, print the test to the output file.
+   int initial = 0; 
+   if (res == true) {
+      for (int i = 0; i < Nnodes; i++) {
+         if (Node[i].fin == 0) {
+            if (initial == 1) {
+               cout << ",";
+            }
+            cout << Node[i].num;
+            initial = 1;
+         }
+      }
+      cout << endl;
+      initial = 0;
+      for (int i = 0; i < Nnodes; i++) {
+         if (Node[i].fin == 0) {
+            if (initial == 1) {
+               cout << ",";
+            }
+            if (Node[i].value == LOGIC_X) {
+               cout << "X";
+            } else if (Node[i].value == LOGIC_D) {
+               cout << "1";
+            } else if (Node[i].value == LOGIC_DBAR) {
+               cout << "0";
+            } else {
+               cout << Node[i].value;
+            }
+            initial = 1;
+         }
+      }
+      cout << endl;
+   }
+
+   // If failure to find test, print a message to the output file
+   else {
+   cout << "none found" << endl;
+   }
+
+  return 0;
+}
+
+//////////////////////////////////////////////////////////////////////
+// Start of functions for circuit simulation (PODEM Imply)
+/** @brief Runs full circuit simulation
+ *
+ * Full-circuit simulation: set all non-PI gates to LOGIC_UNSET
+ * and call the recursive simulate function on all PO gates.
+ */
+void simFullCircuit() {
+  for (int i=0; i<Nnodes; i++) {
+    NSTRUC* g = &Node[i];
+    if (g->type != GATE_PI)
+      g->value = LOGIC_UNSET;      
+  }  
+  for (int i=0; i<Nnodes; i++) {
+   NSTRUC* g = &Node[i];
+   if (g->fout == 0) {
+      simGateRecursive(g);
+   }
+  }
+}
+
+// Recursive function to find and set the value on Gate* g.
+// This function calls simGate and setValueCheckFault. 
+/** @brief Recursive function to find and set the value on Gate* g.
+ * \param g The gate to simulate.
+ * This function prepares Gate* g to to be simulated by recursing
+ * on its inputs (if needed).
+ * 
+ * Then it calls \a simGate(g) to calculate the new value.
+ * 
+ * Lastly, it will set the Gate's output value based on
+ * the calculated value.
+ * 
+ */
+void simGateRecursive(NSTRUC* g) {
+
+  // If this gate has an already-set value, then we're done.
+  if (g->value != LOGIC_UNSET)
+    return;
+  
+  // Recursively call this function on this gate's predecessors to
+  // ensure that their values are known.
+  for (int i=0; i<g->fin; i++) {
+    simGateRecursive(g->unodes[i]);
+  }
+  
+  int gateValue = simGate(g);
+
+  // After I have calculated this gate's value, check to see if a fault changes it and set.
+  setValueCheckFault(g, gateValue);
+}
+
+/** @brief Simulate the value of the given Gate.
+ *
+ * This is a gate simulation function -- it will simulate the gate g
+ * with its current input values and return the output value.
+ * This function does not deal with the fault. (That comes later.)
+ *
+ */
+int simGate(NSTRUC* g) {
+  // Create a vector of the values of this gate's inputs.
+  vector<int> inputVals;
+  for (int i=0; i<g->fin; i++) {
+    inputVals.push_back(g->unodes[i]->value);      
+  }
+
+  int gateType = g->type;
+  int gateValue;
+  // Now, set the value of this gate based on its logical function and its input values
+  switch(gateType) {   
+  case GATE_NAND: { gateValue = evalGate(inputVals, 0, 1); break; }
+  case GATE_NOR: { gateValue = evalGate(inputVals, 1, 1); break; }
+  case GATE_AND: { gateValue = evalGate(inputVals, 0, 0); break; }
+  case GATE_OR: { gateValue = evalGate(inputVals, 1, 0); break; }
+  case GATE_NOT: { gateValue = LogicNot(inputVals[0]); break; }
+  case GATE_XOR: { gateValue = EvalXORGate(inputVals, 0); break; }
+  case GATE_BRANCH: {gateValue = inputVals[0]; break; }
+  default: break;//{ cout << "ERROR: Do not know how to evaluate gate type " << gateType << endl; assert(false);}
+  }    
+
+  return gateValue;
+}
+
+/** @brief Evaluate a NAND, NOR, AND, or OR gate.
+ * \param in The logic value's of this gate's inputs.
+ * \param c The controlling value of this gate type (e.g. c==0 for an AND or NAND gate)
+ * \param i The inverting value for this gate (e.g. i==0 for AND and i==1 for NAND)
+ * \returns The logical value produced by this gate (not including a possible fault on this gate).
+ */
+int evalGate(vector<int> in, int c, int i) {
+
+  // Are any of the inputs of this gate the controlling value?
+  bool anyC = find(in.begin(), in.end(), c) != in.end();
+  
+  // Are any of the inputs of this gate unknown?
+  bool anyUnknown = (find(in.begin(), in.end(), LOGIC_X) != in.end());
+
+  int anyD    = find(in.begin(), in.end(), LOGIC_D)    != in.end();
+  int anyDBar = find(in.begin(), in.end(), LOGIC_DBAR) != in.end();
+
+
+  // if any input is c or we have both D and D', then return c^i
+  if ((anyC) || (anyD && anyDBar))
+    return (i) ? LogicNot(c) : c;
+  
+  // else if any input is unknown, return unknown
+  else if (anyUnknown)
+    return LOGIC_X;
+
+  // else if any input is D, return D^i
+  else if (anyD)
+    return (i) ? LOGIC_DBAR : LOGIC_D;
+
+  // else if any input is D', return D'^i
+  else if (anyDBar)
+    return (i) ? LOGIC_D : LOGIC_DBAR;
+
+  // else return ~(c^i)
+  else
+    return LogicNot((i) ? LogicNot(c) : c);
+}
+
+/** @brief Evaluate an XOR or XNOR gate.
+ * \param in The logic value's of this gate's inputs.
+ * \param inv The inverting value for this gate (e.g. i==0 for XOR and i==1 for XNOR)
+ * \returns The logical value produced by this gate (not including a possible fault on this gate).
+ */
+int EvalXORGate(vector<int> in, int inv) {
+
+  // if any unknowns, return unknown
+  bool anyUnknown = (find(in.begin(), in.end(), LOGIC_X) != in.end());
+  if (anyUnknown)
+    return LOGIC_X;
+
+  // Otherwise, let's count the numbers of ones and zeros for faulty and fault-free circuits.
+  int onesFaultFree = 0;
+  int onesFaulty = 0;
+
+  for (int i=0; i<in.size(); i++) {
+    switch(in[i]) {
+    case LOGIC_0: {break;}
+    case LOGIC_1: {onesFaultFree++; onesFaulty++; break;}
+    case LOGIC_D: {onesFaultFree++; break;}
+    case LOGIC_DBAR: {onesFaulty++; break;}
+    default: {cout << "ERROR: Do not know how to process logic value " << in[i] << " in Gate::EvalXORGate()" << endl; return LOGIC_X;}
+    }
+  }
+  
+  int XORVal;
+
+   if ((onesFaultFree%2 == 0) && (onesFaulty%2 ==0)) { 
+      XORVal = LOGIC_0; }
+   else if ((onesFaultFree%2 == 1) && (onesFaulty%2 ==1))
+    { XORVal = LOGIC_1; }
+  else if ((onesFaultFree%2 == 1) && (onesFaulty%2 ==0))
+   { XORVal = LOGIC_D; }
+  else
+   { XORVal = LOGIC_DBAR; }
+
+  return (inv) ? LogicNot(XORVal) : XORVal;
+
+}
+
+
+/** @brief Perform a logical NOT operation on a logical value using the LOGIC_* macros
+ */
+int LogicNot(int logicVal) {
+  if (logicVal == LOGIC_1)
+    return LOGIC_0;
+  if (logicVal == LOGIC_0)
+    return LOGIC_1;
+  if (logicVal == LOGIC_D)
+    return LOGIC_DBAR;
+  if (logicVal == LOGIC_DBAR)
+    return LOGIC_D;
+  if (logicVal == LOGIC_X)
+    return LOGIC_X;
+      
+  cout << "ERROR: Do not know how to invert " << logicVal << " in LogicNot(int logicVal)" << endl;
+  return LOGIC_UNSET;
+}
+
+
+/** @brief Set the value of Gate* g to value gateValue, accounting for any fault on g.
+ */
+void setValueCheckFault(NSTRUC* g, int gateValue) {
+  if ((g->fault == FAULT_SA0) && (gateValue == LOGIC_1)) 
+  	g->value = LOGIC_D;
+  else if ((g->fault == FAULT_SA0) && (gateValue == LOGIC_DBAR)) 
+  	g->value = LOGIC_0;
+  else if ((g->fault == FAULT_SA1) && (gateValue == LOGIC_0)) 
+  	g->value = LOGIC_DBAR;
+  else if ((g->fault == FAULT_SA1) && (gateValue == LOGIC_D)) 
+  	g->value = LOGIC_1;
+  else
+  	g->value = gateValue;
+}
+
+
+// End of functions for circuit simulation
+////////////////////////////////////////////////////////////
+/** @brief A simple method to compute the set of gates on the D frontier.
+ */
+void updateDFrontier() {
+  //  - clear the dFrontier vector (stored as the global variable dFrontier -- see the top of the file)
+	dFrontier.clear();
+	
+  //  - loop over all gates in the circuit; for each gate, check if it should be on D-frontier; if it is, add it to the dFrontier vector.
+	NSTRUC* np;
+
+	for (int i=0; i< Nnodes; i++)	{
+		np = &Node[i];
+		if (np->value != LOGIC_X) {continue; }
+		else {
+			for (int j=0; j<np->fin; j++) { 
+            if (np->unodes[j]->value == LOGIC_D || np->unodes[j]->value == LOGIC_DBAR) {
+               dFrontier.push_back(np); 
+               break;
+            }
+         }		
+		}
+	}
+}
+
+
+// Find the objective for myCircuit. The objective is stored in g, v.
+/** @brief PODEM objective function.
+ *  \param g Use this pointer to store the objective Gate your function picks.
+ *  \param v Use this char to store the objective value your function picks.
+ *  \returns True if the function is able to determine an objective, and false if it fails.
+ */
+bool getObjective(NSTRUC* &g, int &v) {
+
+  // First you will need to check if the fault is activated yet.
+  // Note that in the setup above we set up a global variable
+  // Gate* faultLocation which represents the gate with the stuck-at
+  // fault on its output. Use that when you check if the fault is
+  // excited.
+
+  
+  // Another note: if the fault is not excited but the fault 
+  // location value is not X, then we have failed to activate 
+  // the fault. In this case getObjective should fail and Return false.  
+	
+	if (faultLocation->value == LOGIC_X) {g= faultLocation; v=faultActivationVal; 
+		return true;}
+	
+	if (faultLocation->value == LOGIC_1 || faultLocation->value == LOGIC_0)
+	{return false;} 
+	//setValueCheckFault(faultLocation, faultLocation->getValue());
+
+  // If the fault is already activated, then you will need to 
+  // use the D-frontier to find an objective.
+  // Before you use the D-frontier you should update it by running:
+  updateDFrontier();
+
+  // If the D frontier is empty after update, then getObjective fails
+  // and should return false.
+	
+	if (dFrontier.empty()) {return false; }
+	
+  // getObjective needs to choose a gate from the D-Frontier.
+	NSTRUC* d;	
+	d = dFrontier[0];
+	// Later, a possible optimization is to use the SCOAP observability metric or other smart methods to choose this carefully.
+    
+  // Lastly, set the values of g and v based on the gate you chose from the D-Frontier.
+   for (int i=0; i<d->fin; i++) 
+      {
+         if (d->unodes[i]->value == LOGIC_X)
+         {
+            g = d->unodes[i]; break;
+         }
+      }
+			
+	if (d->type == GATE_AND || d->type == GATE_NAND) {v=LOGIC_1; }
+	else if (d->type == GATE_OR || d->type == GATE_NOR) {v=LOGIC_0; }
+	else if (d->type == GATE_XOR) {v=LOGIC_0; }
+	else {v=LOGIC_X; }
+	
+  return true;
+
+}
+
+
+// Backtrace: given objective objGate and objVal, then figure out which input (pi) to set and which value (piVal) to set it to.
+/** @brief PODEM backtrace function
+ * \param pi Output: A Gate pointer to the primary input your backtrace function found.
+ * \param piVal Output: The value you want to set that primary input to
+ * \param objGate Input: The objective Gate (computed by getObjective)
+ * \param objVal Input: the objective value (computed by getObjective)
+ */
+void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal) {
+
+	pi = objGate;
+   int k1;
+	int num_inversions;
+	int gatetype = pi->type;
+	
+	if (gatetype == GATE_NOR || gatetype == GATE_NOT || gatetype == GATE_NAND)
+		num_inversions=1;
+	else num_inversions=0;
+	
+	while (pi->type != GATE_PI)
+	{ 		
+		for (k1=0; k1<pi->fin; k1++) 
+			{ 
+				if (pi->unodes[k1]->value == LOGIC_X) {
+               pi=pi->unodes[k1]; break;} 
+			}
+			
+			gatetype = pi->type;
+			
+		if (gatetype == GATE_NOR || gatetype == GATE_NOT || gatetype == GATE_NAND)
+		{num_inversions++; }
+	}
+	
+	if (num_inversions%2==1) {piVal= LogicNot(objVal); }
+	else {piVal = objVal; }
+	
+}
+
+
+/** @brief PODEM recursion.
+ */
+bool podemRecursion() {
+  // If D or D' is at an output, then return true
+    int i,j,val;
+	
+   for (i = 0; i < Nnodes; i++) {
+      if (Node[i].fout == 0) {
+         val = Node[i].value;
+         if (val == LOGIC_D || val == LOGIC_DBAR) {
+            return true;
+         }
+      }
+   }
+
+   NSTRUC* g;
+   int v;  
+
+  // Call the getObjective function. Store the result in g and v.    
+  // If getObjective fails, return false	
+  
+	bool obj = getObjective(g, v);
+	if (obj == false ) return false;
+	
+  NSTRUC* pi;
+  int piVal;
+  
+  // Call the backtrace function. Store the result in pi and piVal.
+  backtrace(pi, piVal, g, v);
+  
+  // Set the value of pi to piVal. Use setValueCheckFault function to make sure if there is a fault on the PI gate, it correctly gets set.
+  setValueCheckFault(pi, piVal);
+  
+  // Now, determine the implications of the input set by simulating the circuit by calling simFullCircuit(myCircuit);
+  simFullCircuit();
+   
+  if (podemRecursion()) {return true;}
+  // If the recursive call fails, set the opposite PI value, simulate it and recurse.
+  // If this recursive call succeeds, return true.
+  int notpiVal;
+  notpiVal= LogicNot(piVal);
+  
+  setValueCheckFault(pi, notpiVal); 
+  
+  simFullCircuit();
+  if (podemRecursion()) {return true;}
+  
+  // If we get to here, neither pi=v nor pi = v' worked. So, set pi to value X and 
+  // return false.
+  setValueCheckFault(pi, LOGIC_X);
+
+  return false;
 }
 
 /*-----------------------------------------------------------------------
