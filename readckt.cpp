@@ -37,11 +37,10 @@ Group 12
 #include <map>
 #include <set>
 #include <sstream>
-
+#include <regex>
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
@@ -52,6 +51,7 @@ Group 12
 #include <set>
 #include <bitset>
 #include <utility>
+#include <time.h>
 
 // macros for gate types
 #define GATE_PI 0
@@ -84,7 +84,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG, DFS, PODEM};
+enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -110,15 +110,17 @@ typedef struct n_struc {
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 10
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp);
+#define NUMFUNCS 12
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp), atpg_det(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
+   {"ATPG_DET", atpg_det, EXEC},
    {"READ", cread, EXEC},
    {"PC", pc, CKTLD},
    {"HELP", help, EXEC},
    {"QUIT", quit, EXEC},
+   {"LEV", level, CKTLD},
    {"LOGICSIM", logicsim, CKTLD},
    {"RFL", rfl, CKTLD},
    {"PFS", pfs, CKTLD},
@@ -141,6 +143,7 @@ vector<NSTRUC *> dFrontier;
 NSTRUC* faultLocation;
 int faultActivationVal;
 int podem_count = 0;
+string circuitName;
 /*------------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------
@@ -211,6 +214,7 @@ int cread(char *cp)
    NSTRUC *np;
 
    sscanf(cp, "%s", buf);
+   circuitName = buf;
    if((fd = fopen(buf,"r")) == NULL) {
       printf("File %s does not exist!\n", buf);
       return 1;
@@ -1191,8 +1195,7 @@ called by: main
 description:
   The routine generates random test patterns
 -----------------------------------------------------------------------*/
-int rtg(char *cp)
-{
+int rtg(char *cp) {
    int i, j;
    NSTRUC *np;
 
@@ -1357,6 +1360,44 @@ int rtg(char *cp)
    return 0;
 }
 
+
+// levelization
+int level(char *cp) {
+   char out_buf[MAXLINE];
+   sscanf(cp, "%s", out_buf);
+
+   lev();
+         ofstream output_test_pattern_file;
+         output_test_pattern_file.open(out_buf);
+         if ( output_test_pattern_file ) {
+            output_test_pattern_file << circuitName << endl;
+            int count_PI = 0;
+            int count_PO = 0;
+            int count_gates = 0;
+            for (int i = 0; i < Nnodes; i++) {
+               if (Node[i].fin == 0) {
+                  count_PI++;
+               }
+               if (Node[i].fout == 0) {
+                  count_PO++;
+               }
+               if (Node[i].type > 1) {
+                  count_gates++;
+               }
+            }
+            output_test_pattern_file << "#PI: " << count_PI << endl;
+            output_test_pattern_file << "#PO: " << count_PO << endl;
+            output_test_pattern_file << "Nodes: " << Nnodes << endl;
+            output_test_pattern_file << "#Gates: " << count_gates << endl; 
+            for (int i = 0; i < Nnodes; i++) {
+               output_test_pattern_file << Node[i].num << " " << Node[i].level << endl ;
+            }
+         }
+         output_test_pattern_file.close();
+
+}
+
+
 // --------------------------------------------------------Phase 3--------------------------------------------------
 //----------------------------
 // Functions for logic simulation - PODEM imply
@@ -1378,6 +1419,9 @@ void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal);
 
 //--------------------------
 // MAIN PODEM
+
+clock_t podem_recursion_tStart = clock();
+
 int podem (char *cp) {
  
    char faultNode_buf[MAXLINE], faultValue_buf[MAXLINE];
@@ -1406,43 +1450,69 @@ int podem (char *cp) {
    // If success, print the test to the output file.
    int initial = 0; 
    if (res == true) {
+   //   try {
+   //       //std::regex rgx("(a-zA-Z0-9_+)\\.ckt");
+   //       regex rgx(R"(([\w]+)\.ckt)");
+   //    } catch (std::regex_error& e) {
+   //       cout << e.code() << endl;
+   //       if (e.code() == std::regex_constants::error_brack	)
+   //          std::cerr << "The expression contained mismatched brackets ([ and ]).\n";
+   //       else std::cerr << "Some other regex exception happened.\n";
+   //    }
+   //    regex rgx(R"(([\w]+)\.ckt)");
+   //    smatch match;
+   //    circuitName = "/home/viterbi/02/sgadde/ee658/ee658/circuits/c17.ckt";
+   //    cout << circuitName << endl;
+   //    if (regex_search(circuitName, match, rgx)){ 
+   //       cout << "FOUND" << endl; 
+   //       for ( auto i : match ){
+   //          cout << i << "," ;}
+   //       cout << match[0] << endl;
+         string output_file = circuitName + "_PODEM_" + faultNode_buf + "@" + faultValue_buf + ".txt";
+         ofstream output_test_pattern_file;
+         output_test_pattern_file.open(output_file);
+         if ( output_test_pattern_file ) {
       for (int i = 0; i < Nnodes; i++) {
          if (Node[i].fin == 0) {
             if (initial == 1) {
-               cout << ",";
+                        output_test_pattern_file << ",";
             }
-            cout << Node[i].num;
+                     output_test_pattern_file << Node[i].num;
             initial = 1;
          }
       }
-      cout << endl;
+            output_test_pattern_file << endl;
       initial = 0;
       for (int i = 0; i < Nnodes; i++) {
          if (Node[i].fin == 0) {
             if (initial == 1) {
-               cout << ",";
+                     output_test_pattern_file << ",";
             }
             if (Node[i].value == LOGIC_X) {
-               cout << "X";
+                     output_test_pattern_file << "X";
             } else if (Node[i].value == LOGIC_D) {
-               cout << "1";
+                     output_test_pattern_file << "1";
             } else if (Node[i].value == LOGIC_DBAR) {
-               cout << "0";
+                     output_test_pattern_file << "0";
             } else {
-               cout << Node[i].value;
+                     output_test_pattern_file << Node[i].value;
             }
             initial = 1;
          }
       }
-      cout << endl;
+            output_test_pattern_file << endl;
+         }
+         output_test_pattern_file.close();
+     //}
    }
 
    // If failure to find test, print a message to the output file
    else {
-   cout << "none found" << endl;
+      //cout << "none found" << endl;
+      return 1;
    }
 
-  return 0;
+   return 0;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1771,6 +1841,12 @@ void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal) {
 /** @brief PODEM recursion.
  */
 bool podemRecursion() {
+
+   int time_elapsed = (clock() - podem_recursion_tStart)/(CLOCKS_PER_SEC);
+   if (time_elapsed > 10) {
+      return false;
+   }
+
   // If D or D' is at an output, then return true
     int i,j,val;
 	
@@ -1820,6 +1896,170 @@ bool podemRecursion() {
   setValueCheckFault(pi, LOGIC_X);
 
   return false;
+}
+
+int atpg_det(char *cp) {
+   // time
+   // read
+   // rfl
+   // for all faults
+   // --podem/dalg
+   // --add pattern
+   // print patterns
+   // rtg - logic for fc
+   // report
+
+   // start clock
+   clock_t tStart = clock();
+
+   char circuit_name[MAXLINE], alg_name[MAXLINE];
+   sscanf(cp, "%s %s", circuit_name, alg_name);
+   
+   // read circuit
+   cread((circuit_name));
+
+   // generate fault list
+   string rfl_arguments = "atpg_det_rfl.out";
+   rfl(strdup(rfl_arguments.c_str()));
+
+   string token;
+   int i;
+   // read fault list
+   vector<pair<int,int> > fault_list;
+   pair<int,int> fault;
+   ifstream fault_file;
+   fault_file.open(rfl_arguments);
+   string fault_line;
+   if ( fault_file.is_open() ) {
+      while ( fault_file ) {
+         getline (fault_file, fault_line);   // read line from fault list file
+         stringstream X(fault_line);
+         i = 0;
+         while (getline(X, token, '@')) {
+            if (i == 0 ) {
+               fault.first = (stoi(token));
+               i = 1;
+            } else {
+               fault.second = stoi(token);
+            }
+         }
+         if (fault_line != "") {
+            fault_list.push_back(fault);
+         }
+      }
+      fault_file.close();
+   }
+   else {
+      cout << "Couldn't open file\n";
+      return 1;
+   }
+   
+   // podem
+   vector<vector<int> > test_patterns;
+   vector<int> test_pattern;
+   for (int i = 0; i < Nnodes; i++) {
+      if (Node[i].fin == 0) {
+         test_pattern.push_back(Node[i].num);
+      }
+   }
+   test_patterns.push_back(test_pattern);
+   test_pattern.clear();
+
+   string alg;
+   // todo add dalg - similarly
+   for (int i=0; i<fault_list.size(); i++) {
+      string podem_arguments = to_string(fault_list[i].first) + " " + to_string(fault_list[i].second);
+      int x = podem(strdup(podem_arguments.c_str()));
+      alg = "PODEM";
+      if (x == 0) {  // if not timeout
+         for (int i = 0; i < Nnodes; i++) {
+
+            if (Node[i].fin == 0) {
+               if (Node[i].value == LOGIC_X) {
+                  Node[i].value = LOGIC_0;
+               } else if (Node[i].value == LOGIC_D) {
+                  Node[i].value = LOGIC_1;
+               } else if (Node[i].value == LOGIC_DBAR) {
+                  Node[i].value = LOGIC_0;
+               }
+               test_pattern.push_back(Node[i].value);
+            }
+         }
+         test_patterns.push_back(test_pattern);
+         test_pattern.clear();
+      }
+   }
+
+   // write patterns to output file
+   bool first = true;
+   string atpg_det_output_patterns = circuitName + "_" + alg + "_ATPG_patterns.txt";
+   ofstream output_file;
+   output_file.open(atpg_det_output_patterns);
+   if ( output_file ) {
+      for (auto const& element : test_patterns) {
+         first = true;
+         for (auto pattern : element) {
+            if (!first){
+               output_file << ",";
+            }
+            first = false;
+            output_file << pattern;
+         }
+         output_file << endl;
+      }
+   } else {
+      cout << "Couldn't create file\n";
+      return 1;
+   }
+
+   // fault coverage calculation
+   set<pair<int,int> > detected_faults;
+
+   string pfs_arguments = atpg_det_output_patterns + " " + rfl_arguments + " " + "detected_faults_temp.txt";
+   pfs(strdup(pfs_arguments.c_str()));
+
+   // read fault list
+   fault_file.open("detected_faults_temp.txt");
+   if ( fault_file.is_open() ) {
+      while ( fault_file ) {
+         getline (fault_file, fault_line);   // read line from fault list file
+         stringstream X(fault_line);
+         i = 0;
+         while (getline(X, token, '@')) {
+            if (i == 0 ) {
+               fault.first = (stoi(token));
+               i = 1;
+            } else {
+               fault.second = stoi(token);
+            }
+         }
+         if (fault_line != "") {
+            detected_faults.insert(fault);
+         }
+      }
+      fault_file.close();
+   } else {
+      cout << "Couldn't open file\n";
+   }
+
+   string atpg_det_output_report = circuitName + "_" + alg + "_ATPG_report.txt";
+   ofstream output_report;
+   output_report.open(atpg_det_output_report);
+   if ( output_report ) {
+      output_report << "Algorithm: " << alg << endl;
+      output_report << "Circuit: " << circuitName << endl;
+      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
+      output_report << "Time: " << (long)(clock() - tStart)/(CLOCKS_PER_SEC) << endl;
+      output_report.close();
+   } else {
+      cout << "Couldn't create file\n";
+      return 1;
+   }
+
+   cout << "OK" << endl;
+
+   printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+   return 0;
 }
 
 /*-----------------------------------------------------------------------
