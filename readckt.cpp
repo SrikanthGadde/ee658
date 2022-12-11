@@ -84,7 +84,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LEV, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET};
+enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -121,7 +121,6 @@ struct cmdstruc command[NUMFUNCS] = {
    {"HELP", help, EXEC},
    {"QUIT", quit, EXEC},
    {"LEV", level, CKTLD},
-   {"LEV", level, CKTLD},
    {"LOGICSIM", logicsim, CKTLD},
    {"RFL", rfl, CKTLD},
    {"PFS", pfs, CKTLD},
@@ -144,7 +143,6 @@ vector<NSTRUC *> dFrontier;
 NSTRUC* faultLocation;
 int faultActivationVal;
 int podem_count = 0;
-string circuitName;
 string circuitName;
 /*------------------------------------------------------------------------*/
 
@@ -1401,44 +1399,6 @@ int level(char *cp) {
 }
 
 
-
-// levelization
-int level(char *cp) {
-   char out_buf[MAXLINE];
-   sscanf(cp, "%s", out_buf);
-
-   lev();
-         ofstream output_test_pattern_file;
-         output_test_pattern_file.open(out_buf);
-         if ( output_test_pattern_file ) {
-            output_test_pattern_file << circuitName << endl;
-            int count_PI = 0;
-            int count_PO = 0;
-            int count_gates = 0;
-            for (int i = 0; i < Nnodes; i++) {
-               if (Node[i].fin == 0) {
-                  count_PI++;
-               }
-               if (Node[i].fout == 0) {
-                  count_PO++;
-               }
-               if (Node[i].type > 1) {
-                  count_gates++;
-               }
-            }
-            output_test_pattern_file << "#PI: " << count_PI << endl;
-            output_test_pattern_file << "#PO: " << count_PO << endl;
-            output_test_pattern_file << "Nodes: " << Nnodes << endl;
-            output_test_pattern_file << "#Gates: " << count_gates << endl; 
-            for (int i = 0; i < Nnodes; i++) {
-               output_test_pattern_file << Node[i].num << " " << Node[i].level << endl ;
-            }
-         }
-         output_test_pattern_file.close();
-
-}
-
-
 // --------------------------------------------------------Phase 3--------------------------------------------------
 //----------------------------
 // Functions for logic simulation - PODEM imply
@@ -1576,6 +1536,7 @@ int podem (char *cp) {
    }
 
    return 0;
+   }
 }
 
 //////////////////////////////////////////////////////////////////////
