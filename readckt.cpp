@@ -215,8 +215,19 @@ int cread(char *cp)
    NSTRUC *np;
 
    sscanf(cp, "%s", buf);
+
+   // extract circuit name from path
    circuitName = buf;
-   circuitName = buf;
+   size_t sep = circuitName.find_last_of("\\/");
+   if (sep != std::string::npos) {
+      circuitName = circuitName.substr(sep + 1, circuitName.size() - sep - 1);
+   }
+   size_t dot = circuitName.find_last_of(".");
+   if (dot != std::string::npos)
+   {
+      circuitName = circuitName.substr(0, dot);
+   }
+
    if((fd = fopen(buf,"r")) == NULL) {
       printf("File %s does not exist!\n", buf);
       return 1;
@@ -1421,11 +1432,10 @@ void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal);
 
 //--------------------------
 // MAIN PODEM
-
-clock_t podem_recursion_tStart = clock();
+clock_t podem_recursion_tStart;
 
 int podem (char *cp) {
- 
+   podem_recursion_tStart = clock();
    char faultNode_buf[MAXLINE], faultValue_buf[MAXLINE];
    sscanf(cp, "%s %s", faultNode_buf, faultValue_buf);
 
@@ -1868,7 +1878,7 @@ void backtrace(NSTRUC* &pi, int &piVal, NSTRUC* objGate, int objVal) {
 bool podemRecursion() {
 
    int time_elapsed = (clock() - podem_recursion_tStart)/(CLOCKS_PER_SEC);
-   if (time_elapsed > 10) {
+   if (time_elapsed > 1) {
       return false;
    }
 
@@ -1951,6 +1961,7 @@ int atpg_det(char *cp) {
    int i;
    // read fault list
    vector<pair<int,int> > fault_list;
+   fault_list.clear();
    pair<int,int> fault;
    ifstream fault_file;
    fault_file.open(rfl_arguments);
@@ -1981,7 +1992,9 @@ int atpg_det(char *cp) {
    
    // podem
    vector<vector<int> > test_patterns;
+   test_patterns.clear();
    vector<int> test_pattern;
+   test_pattern.clear();
    for (int i = 0; i < Nnodes; i++) {
       if (Node[i].fin == 0) {
          test_pattern.push_back(Node[i].num);
@@ -1997,17 +2010,17 @@ int atpg_det(char *cp) {
       int x = podem(strdup(podem_arguments.c_str()));
       alg = "PODEM";
       if (x == 0) {  // if not timeout
-         for (int i = 0; i < Nnodes; i++) {
+         for (int j = 0; j < Nnodes; j++) {
 
-            if (Node[i].fin == 0) {
-               if (Node[i].value == LOGIC_X) {
-                  Node[i].value = LOGIC_0;
-               } else if (Node[i].value == LOGIC_D) {
-                  Node[i].value = LOGIC_1;
-               } else if (Node[i].value == LOGIC_DBAR) {
-                  Node[i].value = LOGIC_0;
+            if (Node[j].fin == 0) {
+               if (Node[j].value == LOGIC_X) {
+                  Node[j].value = rand()%2;
+               } else if (Node[j].value == LOGIC_D) {
+                  Node[j].value = LOGIC_1;
+               } else if (Node[j].value == LOGIC_DBAR) {
+                  Node[j].value = LOGIC_0;
                }
-               test_pattern.push_back(Node[i].value);
+               test_pattern.push_back(Node[j].value);
             }
          }
          test_patterns.push_back(test_pattern);
@@ -2074,7 +2087,7 @@ int atpg_det(char *cp) {
       output_report << "Algorithm: " << alg << endl;
       output_report << "Circuit: " << circuitName << endl;
       output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
-      output_report << "Time: " << (long)(clock() - tStart)/(CLOCKS_PER_SEC) << endl;
+      output_report << "Time: " << (double)(clock() - tStart)/(CLOCKS_PER_SEC) << "s" << endl;
       output_report.close();
    } else {
       cout << "Couldn't create file\n";
@@ -2117,12 +2130,17 @@ int atpg(char *cp) {
    
    // random test generation
    vector<pair<int, int> > fault_list;     // dictionary to hold PO values
+   fault_list.clear();
    vector<pair<int,int> > fault_list_drop;
+   fault_list_drop.clear();
    pair<int,int> fault;    // temporarily holds the faults
 
    vector<int> PI;
+   PI.clear();
    vector<int> input_values;
+   input_values.clear();
    vector<vector<int> > test_patterns;
+   test_patterns.clear();
 
    NSTRUC *np;
 
@@ -2272,13 +2290,16 @@ int atpg(char *cp) {
       for (auto element : detected_faults) {
          fault_list_drop.erase(remove(fault_list_drop.begin(), fault_list_drop.end(), element), fault_list_drop.end());
       }
-      cout << fault_list_drop.size() << endl;
-      cout<<fc<<endl;
+
    }
+   cout << "Fault List size (after dropping): " << fault_list_drop.size() << endl;
+   cout<< "FC: " << fc << "%" << endl;
    cout << "done with Random, starting ATPG_DET" << endl;
    test_patterns.clear();
+   test_patterns.push_back(PI);
    // podem
    vector<int> test_pattern;
+   test_pattern.clear();
    for (int i=0; i<fault_list_drop.size(); i++) {
       string podem_arguments = to_string(fault_list_drop[i].first) + " " + to_string(fault_list_drop[i].second);
       int x = podem(strdup(podem_arguments.c_str()));
@@ -2287,7 +2308,7 @@ int atpg(char *cp) {
 
             if (Node[i].fin == 0) {
                if (Node[i].value == LOGIC_X) {
-                  Node[i].value = LOGIC_0;
+                  Node[i].value = rand()%2;
                } else if (Node[i].value == LOGIC_D) {
                   Node[i].value = LOGIC_1;
                } else if (Node[i].value == LOGIC_DBAR) {
