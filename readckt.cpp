@@ -84,7 +84,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET};
+enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET, ATPG};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -110,8 +110,8 @@ typedef struct n_struc {
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 12
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp), atpg_det(char *cp);
+#define NUMFUNCS 13
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp), atpg_det(char *cp), atpg(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -127,6 +127,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"RTG", rtg, CKTLD},
    {"DFS", dfs, CKTLD},
    {"PODEM", podem, CKTLD},
+   {"ATPG", atpg, EXEC},
 };
 
 /*------------------------------------------------------------------------*/
@@ -2074,6 +2075,324 @@ int atpg_det(char *cp) {
       output_report << "Circuit: " << circuitName << endl;
       output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
       output_report << "Time: " << (long)(clock() - tStart)/(CLOCKS_PER_SEC) << endl;
+      output_report.close();
+   } else {
+      cout << "Couldn't create file\n";
+      return 1;
+   }
+
+   cout << "OK" << endl;
+
+   printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+   return 0;
+}
+
+
+int atpg(char *cp) {
+   // time
+   // read
+   // lev
+   // rfl
+   // random test generation
+   // calculate fc after every Nnodes/10 patterns
+   // if difference in fc is less than 10%
+   // -- switch to podem
+      // for all faults
+      // --podem/dalg
+      // --add pattern
+   // print patterns
+   // logic for fc
+   // report
+
+   // start clock
+   clock_t tStart = clock();
+
+   char circuit_name[MAXLINE], alg_name[MAXLINE];
+   sscanf(cp, "%s %s", circuit_name, alg_name);
+   
+   // read circuit
+   cread((circuit_name));
+
+   lev();
+   
+   // random test generation
+   vector<pair<int, int> > fault_list;     // dictionary to hold PO values
+   vector<pair<int,int> > fault_list_drop;
+   pair<int,int> fault;    // temporarily holds the faults
+
+   vector<int> PI;
+   vector<int> input_values;
+   vector<vector<int> > test_patterns;
+
+   NSTRUC *np;
+
+   // get all faults
+   for (int i = 0; i < Nnodes; i++){    // iterate over all the nodes
+      np = &Node[i];
+
+      // add to PI vector
+      if (np->fin == 0) {
+         PI.push_back(np->num);
+      }
+
+      // add faults
+      fault.first = np->num;
+      for (int j = 0; j < 2; j++) {     // assign value of 0 and 1 to the faulty node
+         fault.second = j; 
+         fault_list.push_back(fault);     // add the fault to the fault_list
+         fault_list_drop.push_back(fault);   // add fault to the fault list after dropping - we will use this later
+      }
+   }
+
+   string test_pattern_buf = circuitName + "_ATPG_patterns.txt";
+
+   ofstream output_test_pattern_file;
+   output_test_pattern_file.open(test_pattern_buf);
+   // print test patterns to a file
+   int flag = 0;
+   if ( output_test_pattern_file ) {
+      for (int i = 0; i < PI.size(); i++) {
+         if (flag == 0) {
+            output_test_pattern_file << PI[i];
+            flag = 1;
+         } else {
+            output_test_pattern_file << "," << PI[i];
+         }
+      }
+      flag = 0;
+      output_test_pattern_file << endl;
+   } else {
+      cout << "Couldn't create file\n";
+   }
+
+   set<pair<int,int> > detected_faults;
+   int fc=0, fc_old=0;
+
+   int test_patterns_generated = 0;
+   srand(time(0));
+   while (((fc==0)&(fc_old==0)) | ((fc-fc_old > 5)&(fault_list_drop.size() != 0))) {
+      test_patterns.clear();
+      test_patterns.push_back(PI);
+      for (int i = 0; i < Nnodes/10; i++) {     // todo change number of test_patterns generated in each iteration
+         for (int j = 0; j < PI.size(); j++) {
+            input_values.push_back(rand()%2);
+         }
+         test_patterns_generated++;
+         test_patterns.push_back(input_values);
+         input_values.clear();
+      }
+      
+      // write the fault list and test patterns to temp files inorder to pass them to PFS
+      ofstream output_file;
+      output_file.open("fault_list_temp.txt");
+      if ( output_file ) {
+         for (int i = 0; i < fault_list_drop.size(); i++) {
+            output_file << fault_list_drop[i].first << "@" << fault_list_drop[i].second << endl;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+      
+      int flag = 0;
+      output_file.open("test_pattern_temp.txt");
+      if ( output_file ) {
+         for (int i = 0; i < test_patterns.size(); i++) {
+            for (int j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_file << "," << test_patterns[i][j];
+               }
+            }
+            output_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+
+      string pfs_arguments = "test_pattern_temp.txt fault_list_temp.txt detected_faults_temp.txt";
+      pfs(strdup(pfs_arguments.c_str()));
+
+      // read fault list
+      int i;
+      ifstream fault_file;
+      fault_file.open("detected_faults_temp.txt");
+      string fault_line, token;
+      if ( fault_file.is_open() ) {
+         while ( fault_file ) {
+            getline (fault_file, fault_line);   // read line from fault list file
+            stringstream X(fault_line);
+            i = 0;
+            while (getline(X, token, '@')) {
+               if (i == 0 ) {
+                  fault.first = (stoi(token));
+                  i = 1;
+               } else {
+                  fault.second = stoi(token);
+               }
+            }
+            if (fault_line != "") {
+               detected_faults.insert(fault);
+            }
+         }
+         fault_file.close();
+      }
+      else {
+         cout << "Couldn't open file\n";
+      }
+
+      // print test patterns to a file
+      flag = 0;
+      if ( output_test_pattern_file ) {
+         for (i = 1; i < test_patterns.size(); i++) {
+            for (int j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_test_pattern_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_test_pattern_file << "," << test_patterns[i][j];
+               }
+            }
+            output_test_pattern_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+
+      // calculate FC and update old FC
+      fc_old = fc;
+      fc = detected_faults.size()*100.0/fault_list.size();
+
+      // update fault_list_drop
+      for (auto element : detected_faults) {
+         fault_list_drop.erase(remove(fault_list_drop.begin(), fault_list_drop.end(), element), fault_list_drop.end());
+      }
+      cout << fault_list_drop.size() << endl;
+      cout<<fc<<endl;
+   }
+   cout << "done with Random, starting ATPG_DET" << endl;
+   test_patterns.clear();
+   // podem
+   vector<int> test_pattern;
+   for (int i=0; i<fault_list_drop.size(); i++) {
+      string podem_arguments = to_string(fault_list_drop[i].first) + " " + to_string(fault_list_drop[i].second);
+      int x = podem(strdup(podem_arguments.c_str()));
+      if (x == 0) {  // if not timeout
+         for (int i = 0; i < Nnodes; i++) {
+
+            if (Node[i].fin == 0) {
+               if (Node[i].value == LOGIC_X) {
+                  Node[i].value = LOGIC_0;
+               } else if (Node[i].value == LOGIC_D) {
+                  Node[i].value = LOGIC_1;
+               } else if (Node[i].value == LOGIC_DBAR) {
+                  Node[i].value = LOGIC_0;
+               }
+               test_pattern.push_back(Node[i].value);
+            }
+         }
+         test_patterns.push_back(test_pattern);
+         test_pattern.clear();
+      }
+   }
+
+// -------------------------------------------------
+      // write the fault list and test patterns to temp files inorder to pass them to PFS
+      ofstream output_file;
+      output_file.open("fault_list_temp.txt");
+      if ( output_file ) {
+         for (int i = 0; i < fault_list_drop.size(); i++) {
+            output_file << fault_list_drop[i].first << "@" << fault_list_drop[i].second << endl;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+      
+      flag = 0;
+      output_file.open("test_pattern_temp.txt");
+      if ( output_file ) {
+         for (int i = 0; i < test_patterns.size(); i++) {
+            for (int j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_file << "," << test_patterns[i][j];
+               }
+            }
+            output_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+      output_file.close();
+
+      string pfs_arguments = "test_pattern_temp.txt fault_list_temp.txt detected_faults_temp.txt";
+      pfs(strdup(pfs_arguments.c_str()));
+
+      // read fault list
+      int i;
+      ifstream fault_file;
+      fault_file.open("detected_faults_temp.txt");
+      string fault_line, token;
+      if ( fault_file.is_open() ) {
+         while ( fault_file ) {
+            getline (fault_file, fault_line);   // read line from fault list file
+            stringstream X(fault_line);
+            i = 0;
+            while (getline(X, token, '@')) {
+               if (i == 0 ) {
+                  fault.first = (stoi(token));
+                  i = 1;
+               } else {
+                  fault.second = stoi(token);
+               }
+            }
+            if (fault_line != "") {
+               detected_faults.insert(fault);
+            }
+         }
+         fault_file.close();
+      }
+      else {
+         cout << "Couldn't open file\n";
+      }
+
+      // print test patterns to a file
+      flag = 0;
+      if ( output_test_pattern_file ) {
+         for (i = 1; i < test_patterns.size(); i++) {
+            for (int j = 0; j < test_patterns[0].size(); j++) {
+               if (flag == 0) {
+                  output_test_pattern_file << test_patterns[i][j];
+                  flag = 1;
+               } else {
+                  output_test_pattern_file << "," << test_patterns[i][j];
+               }
+            }
+            output_test_pattern_file << endl;
+            flag = 0;
+         }
+      } else {
+         cout << "Couldn't create file\n";
+      }
+
+      // done with atpg -report
+
+   string atpg_det_output_report = circuitName + "_ATPG_report.txt";
+   ofstream output_report;
+   output_report.open(atpg_det_output_report);
+   if ( output_report ) {
+      output_report << "Circuit: " << circuitName << endl;
+      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
+      output_report << "Time: " << (double)(clock() - tStart)/(CLOCKS_PER_SEC) << "s" << endl;
       output_report.close();
    } else {
       cout << "Couldn't create file\n";
