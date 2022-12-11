@@ -37,11 +37,10 @@ Group 12
 #include <map>
 #include <set>
 #include <sstream>
-
+#include <regex>
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
@@ -84,7 +83,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LOGICSIM, RFL, PFS, RTG, DFS, PODEM};
+enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -110,8 +109,8 @@ typedef struct n_struc {
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 10
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp);
+#define NUMFUNCS 11
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -119,6 +118,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"PC", pc, CKTLD},
    {"HELP", help, EXEC},
    {"QUIT", quit, EXEC},
+   {"LEV", level, CKTLD},
    {"LOGICSIM", logicsim, CKTLD},
    {"RFL", rfl, CKTLD},
    {"PFS", pfs, CKTLD},
@@ -141,6 +141,7 @@ vector<NSTRUC *> dFrontier;
 NSTRUC* faultLocation;
 int faultActivationVal;
 int podem_count = 0;
+string circuitName;
 /*------------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------
@@ -211,6 +212,7 @@ int cread(char *cp)
    NSTRUC *np;
 
    sscanf(cp, "%s", buf);
+   circuitName = buf;
    if((fd = fopen(buf,"r")) == NULL) {
       printf("File %s does not exist!\n", buf);
       return 1;
@@ -1357,6 +1359,44 @@ int rtg(char *cp)
    return 0;
 }
 
+
+// levelization
+int level(char *cp) {
+   char out_buf[MAXLINE];
+   sscanf(cp, "%s", out_buf);
+
+   lev();
+         ofstream output_test_pattern_file;
+         output_test_pattern_file.open(out_buf);
+         if ( output_test_pattern_file ) {
+            output_test_pattern_file << circuitName << endl;
+            int count_PI = 0;
+            int count_PO = 0;
+            int count_gates = 0;
+            for (int i = 0; i < Nnodes; i++) {
+               if (Node[i].fin == 0) {
+                  count_PI++;
+               }
+               if (Node[i].fout == 0) {
+                  count_PO++;
+               }
+               if (Node[i].type > 1) {
+                  count_gates++;
+               }
+            }
+            output_test_pattern_file << "#PI: " << count_PI << endl;
+            output_test_pattern_file << "#PO: " << count_PO << endl;
+            output_test_pattern_file << "Nodes: " << Nnodes << endl;
+            output_test_pattern_file << "#Gates: " << count_gates << endl; 
+            for (int i = 0; i < Nnodes; i++) {
+               output_test_pattern_file << Node[i].num << " " << Node[i].level << endl ;
+            }
+         }
+         output_test_pattern_file.close();
+
+}
+
+
 // --------------------------------------------------------Phase 3--------------------------------------------------
 //----------------------------
 // Functions for logic simulation - PODEM imply
@@ -1406,35 +1446,60 @@ int podem (char *cp) {
    // If success, print the test to the output file.
    int initial = 0; 
    if (res == true) {
+   //   try {
+   //       //std::regex rgx("(a-zA-Z0-9_+)\\.ckt");
+   //       regex rgx(R"(([\w]+)\.ckt)");
+   //    } catch (std::regex_error& e) {
+   //       cout << e.code() << endl;
+   //       if (e.code() == std::regex_constants::error_brack	)
+   //          std::cerr << "The expression contained mismatched brackets ([ and ]).\n";
+   //       else std::cerr << "Some other regex exception happened.\n";
+   //    }
+   //    regex rgx(R"(([\w]+)\.ckt)");
+   //    smatch match;
+   //    circuitName = "/home/viterbi/02/sgadde/ee658/ee658/circuits/c17.ckt";
+   //    cout << circuitName << endl;
+   //    if (regex_search(circuitName, match, rgx)){ 
+   //       cout << "FOUND" << endl; 
+   //       for ( auto i : match ){
+   //          cout << i << "," ;}
+   //       cout << match[0] << endl;
+         string output_file = circuitName + "_PODEM_" + faultNode_buf + "@" + faultValue_buf + ".txt";
+         ofstream output_test_pattern_file;
+         output_test_pattern_file.open(output_file);
+         if ( output_test_pattern_file ) {
       for (int i = 0; i < Nnodes; i++) {
          if (Node[i].fin == 0) {
             if (initial == 1) {
-               cout << ",";
+                        output_test_pattern_file << ",";
             }
-            cout << Node[i].num;
+                     output_test_pattern_file << Node[i].num;
             initial = 1;
          }
       }
-      cout << endl;
+            output_test_pattern_file << endl;
       initial = 0;
       for (int i = 0; i < Nnodes; i++) {
          if (Node[i].fin == 0) {
             if (initial == 1) {
-               cout << ",";
+                     output_test_pattern_file << ",";
             }
             if (Node[i].value == LOGIC_X) {
-               cout << "X";
+                     output_test_pattern_file << "X";
             } else if (Node[i].value == LOGIC_D) {
-               cout << "1";
+                     output_test_pattern_file << "1";
             } else if (Node[i].value == LOGIC_DBAR) {
-               cout << "0";
+                     output_test_pattern_file << "0";
             } else {
-               cout << Node[i].value;
+                     output_test_pattern_file << Node[i].value;
             }
             initial = 1;
          }
       }
-      cout << endl;
+            output_test_pattern_file << endl;
+         }
+         output_test_pattern_file.close();
+     //}
    }
 
    // If failure to find test, print a message to the output file
