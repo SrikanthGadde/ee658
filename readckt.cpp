@@ -51,7 +51,7 @@ Group 12
 #include <set>
 #include <bitset>
 #include <utility>
-#include <time.h>
+#include <chrono>
 
 // macros for gate types
 #define GATE_PI 0
@@ -77,6 +77,9 @@ Group 12
 #define FAULT_SA1 1
 
 using namespace std;
+//using clock = std::chrono::system_clock;
+using sec = std::chrono::duration<double>; 
+using ms = std::chrono::duration<double, std::milli>; 
 
 #define MAXLINE 1000              /* Input buffer size */
 #define MAXNAME 1000               /* File name size */
@@ -84,7 +87,7 @@ using namespace std;
 #define Upcase(x) ((isalpha(x) && islower(x))? toupper(x) : (x))
 #define Lowcase(x) ((isalpha(x) && isupper(x))? tolower(x) : (x))
 
-enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, ATPG_DET, ATPG};
+enum e_com {READ, PC, HELP, QUIT, LEV, LOGICSIM, RFL, PFS, RTG, DFS, PODEM, DALG, ATPG_DET, ATPG};
 enum e_state {EXEC, CKTLD};         /* Gstate values */
 enum e_ntype {GATE, PI, FB, PO};    /* column 1 of circuit format */
 enum e_gtype {IPT, BRCH, XOR, OR, NOR, NOT, NAND, AND};  /* gate types */
@@ -107,11 +110,14 @@ typedef struct n_struc {
    int value;                 /* value of the gate output */
    int f_value;
    int fault;                 /* logic value of the fault */
+   int level_not_assign;
+   int sa_parent[2];
+   int assign_level;
 } NSTRUC;                     
 
 /*----------------- Command definitions ----------------------------------*/
-#define NUMFUNCS 13
-int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp), atpg_det(char *cp), atpg(char *cp);
+#define NUMFUNCS 14
+int cread(char *cp), pc(char *cp), help(char *cp), quit(char *cp), level(char *cp), logicsim(char *cp), rfl(char *cp), pfs(char *cp), rtg(char *cp), dfs(char *cp), podem(char *cp), dalg(char *cp), atpg_det(char *cp), atpg(char *cp);
 void allocate(), clear();
 string gname(int tp);
 struct cmdstruc command[NUMFUNCS] = {
@@ -127,6 +133,7 @@ struct cmdstruc command[NUMFUNCS] = {
    {"RTG", rtg, CKTLD},
    {"DFS", dfs, CKTLD},
    {"PODEM", podem, CKTLD},
+   {"DALG", dalg, CKTLD},
    {"ATPG", atpg, EXEC},
 };
 
@@ -1484,60 +1491,37 @@ int podem (char *cp) {
          ofstream output_test_pattern_file;
          output_test_pattern_file.open(output_file);
          if ( output_test_pattern_file ) {
-   //   try {
-   //       //std::regex rgx("(a-zA-Z0-9_+)\\.ckt");
-   //       regex rgx(R"(([\w]+)\.ckt)");
-   //    } catch (std::regex_error& e) {
-   //       cout << e.code() << endl;
-   //       if (e.code() == std::regex_constants::error_brack	)
-   //          std::cerr << "The expression contained mismatched brackets ([ and ]).\n";
-   //       else std::cerr << "Some other regex exception happened.\n";
-   //    }
-   //    regex rgx(R"(([\w]+)\.ckt)");
-   //    smatch match;
-   //    circuitName = "/home/viterbi/02/sgadde/ee658/ee658/circuits/c17.ckt";
-   //    cout << circuitName << endl;
-   //    if (regex_search(circuitName, match, rgx)){ 
-   //       cout << "FOUND" << endl; 
-   //       for ( auto i : match ){
-   //          cout << i << "," ;}
-   //       cout << match[0] << endl;
-         string output_file = circuitName + "_PODEM_" + faultNode_buf + "@" + faultValue_buf + ".txt";
-         ofstream output_test_pattern_file;
-         output_test_pattern_file.open(output_file);
-         if ( output_test_pattern_file ) {
-      for (int i = 0; i < Nnodes; i++) {
-         if (Node[i].fin == 0) {
-            if (initial == 1) {
-                        output_test_pattern_file << ",";
+            for (int i = 0; i < Nnodes; i++) {
+               if (Node[i].fin == 0) {
+                  if (initial == 1) {
+                              output_test_pattern_file << ",";
+                  }
+                           output_test_pattern_file << Node[i].num;
+                  initial = 1;
+               }
             }
-                     output_test_pattern_file << Node[i].num;
-            initial = 1;
-         }
-      }
             output_test_pattern_file << endl;
-      initial = 0;
-      for (int i = 0; i < Nnodes; i++) {
-         if (Node[i].fin == 0) {
-            if (initial == 1) {
-                     output_test_pattern_file << ",";
+            initial = 0;
+            for (int i = 0; i < Nnodes; i++) {
+               if (Node[i].fin == 0) {
+                  if (initial == 1) {
+                           output_test_pattern_file << ",";
+                  }
+                  if (Node[i].value == LOGIC_X) {
+                           output_test_pattern_file << "X";
+                  } else if (Node[i].value == LOGIC_D) {
+                           output_test_pattern_file << "1";
+                  } else if (Node[i].value == LOGIC_DBAR) {
+                           output_test_pattern_file << "0";
+                  } else {
+                           output_test_pattern_file << Node[i].value;
+                  }
+                  initial = 1;
+               }
             }
-            if (Node[i].value == LOGIC_X) {
-                     output_test_pattern_file << "X";
-            } else if (Node[i].value == LOGIC_D) {
-                     output_test_pattern_file << "1";
-            } else if (Node[i].value == LOGIC_DBAR) {
-                     output_test_pattern_file << "0";
-            } else {
-                     output_test_pattern_file << Node[i].value;
-            }
-            initial = 1;
-         }
-      }
             output_test_pattern_file << endl;
          }
          output_test_pattern_file.close();
-     //}
    }
 
    // If failure to find test, print a message to the output file
@@ -1547,7 +1531,6 @@ int podem (char *cp) {
    }
 
    return 0;
-   }
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1933,6 +1916,835 @@ bool podemRecursion() {
   return false;
 }
 
+
+// ------------------------------------- DALG ------------------------------------------------------------------
+deque<int> Dfront;
+vector<int> Jfront;
+vector<int> imply;
+vector< vector<int> > test_vectors;
+int Dalg_count;
+pair<int,int> check_fault;
+clock_t dalg_recursion_tStart;
+
+bool unassign(int level) {  
+   for(int kk=0;kk<Nnodes;kk++) { 
+      if(Node[kk].assign_level>level ) {
+         Node[kk].value=LOGIC_X; 
+         Node[kk].assign_level=-1;
+      } 
+   } 
+   return true;
+}
+
+bool check_Dfront (int node){
+   NSTRUC *np; 
+   np =&Node[node];
+   int Dnum=0; 
+   int Dbarnum=0, Onenum=0, Zeronum=0;
+   for(int j=0;j<(np->fin); j++ ){
+      if(np->unodes[j]->value == LOGIC_D) Dnum++;
+      else if(np->unodes[j]->value == LOGIC_DBAR) Dbarnum++;
+      else if(np->unodes[j]->value == LOGIC_1) Onenum++;
+      else if(np->unodes[j]->value == LOGIC_0) Zeronum++;
+   }
+   if( (Dnum==0 && Dbarnum==0)|| np->value!=LOGIC_X ||(Dnum>0 && Dbarnum>0) || (Onenum>0 && (np->type==GATE_OR || np->type==GATE_NOR || np->type==GATE_NOT || np->type==GATE_BRANCH))
+      || (Zeronum>0 && (np->type==GATE_NAND || np->type==GATE_AND || np->type==GATE_NOT || np->type==GATE_BRANCH )))
+   { return false;}
+   else { return true; }
+}
+   
+int getDfront(){
+
+   vector<int> tmp; 
+   tmp.clear();
+   Dfront.clear();
+   tmp.push_back((int)(check_fault.first));
+
+      for(int i=0; i<tmp.size(); i++){
+         NSTRUC *np =&Node[tmp[i]];
+         if(np->fout>0){
+            for( int k=0;k<np->fout; k++){
+               if  ( check_Dfront(np->dnodes[k]->indx) ){ 
+                     Dfront.push_back(np->dnodes[k]->indx);
+               }
+               else if ( np->dnodes[k]->value==LOGIC_D || np->dnodes[k]->value==LOGIC_DBAR ){
+                  tmp.push_back(np->dnodes[k]->indx);
+               }
+            }
+         }
+      }
+      return 0;
+}
+
+
+
+bool imply_and_check(){
+	
+	for(int kk=0; kk< imply.size(); kk++){
+	   NSTRUC *np =&Node[imply[kk]];
+	   if(np->value != LOGIC_D && np->value != LOGIC_DBAR) {
+	   //backward imply
+		   if(np->type == GATE_PI) return true;
+
+         else if( np->type == GATE_BRANCH) {		
+            for(int jj=0;jj<(np->fin);jj++){
+               if(np->value==LOGIC_0) { 
+                  if(np->unodes[jj]->value==LOGIC_X) { 
+                     np->unodes[jj]->value = LOGIC_0;   
+                     imply.push_back(np->unodes[jj]->indx);
+                  } else if (np->unodes[jj]->value!=LOGIC_0 ) {
+                     return false;
+                  }
+               }
+               if(np->value==LOGIC_1) { 
+                  if(np->unodes[jj]->value==LOGIC_X) { 
+                     np->unodes[jj]->value = LOGIC_1;   
+                     imply.push_back(np->unodes[jj]->indx);
+                  } else if (np->unodes[jj]->value!=LOGIC_1 ) {
+                     return false;
+                  }
+               }
+            } 
+         
+         }// branch
+         // forward propagation
+
+         else if (np->type == GATE_XOR) { 
+            int num_inputX=0; 
+            int oneXind=0; 
+            int implyvalue=np->value; 
+            for(int jj=0;jj<(np->fin);jj++) { 
+               if(np->unodes[jj]->value==LOGIC_1 || np->unodes[jj]->value==LOGIC_0) {
+                  implyvalue^=np->unodes[jj]->value;
+               } else if (np->unodes[jj]->value==LOGIC_D || np->unodes[jj]->value==LOGIC_DBAR) {
+                  return false;
+               } else {
+                  oneXind=jj;
+                  num_inputX++; 
+               }
+            }
+            if(num_inputX==1) { 
+               np->unodes[oneXind]->value =  implyvalue;   
+               imply.push_back(np->unodes[oneXind]->indx);   
+            } else {
+               Jfront.push_back(np->indx);
+            } 
+         } //xor
+         // j frontier : 1. at least two inputs are unknown  2. no control value of input(so that output can be implied)
+				
+         else if  ( np->type == GATE_OR) {
+            if(np->value==LOGIC_0)  { 
+               for(int jj=0;jj<(np->fin);jj++){
+                  if(np->unodes[jj]->value!=LOGIC_0 && np->unodes[jj]->value!=LOGIC_X) {
+                     return false;
+                  }
+                  else if(np->unodes[jj]->value==LOGIC_X){ 
+                     np->unodes[jj]->value = 0;   
+                     imply.push_back(np->unodes[jj]->indx);   
+                  }
+               }   
+            }
+            if(np->value==LOGIC_1){ 
+               bool has_controlvalue=false; 
+               int unknown_num=0;
+               int oneXind=0; 
+               int Dnum=0; 
+               int Dbarnum=0;
+               for(int jj=0;jj<(np->fin);jj++) {
+                     if(np->unodes[jj]->value==LOGIC_1) { 
+                        has_controlvalue=true; 
+                        break;
+                     } else if (np->unodes[jj]->value==LOGIC_X) {
+                        unknown_num++;  
+                        oneXind=jj;
+                     } else if (np->unodes[jj]->value==LOGIC_D) { 
+                        Dnum++; 
+                     } else if (np->unodes[jj]->value==LOGIC_DBAR) { 
+                        Dbarnum++; 
+                     }
+               }
+               if(has_controlvalue==false && unknown_num==0) {
+                  if(Dnum==0 || Dbarnum==0) { 
+                     return false;
+                  }
+               }
+               else if(has_controlvalue==false && unknown_num ==1) {     
+                  if(!(Dnum>0 && Dbarnum>0)) {
+                     np->unodes[oneXind]->value =  LOGIC_1;   
+                     imply.push_back(np->unodes[oneXind]->indx); 
+                  }
+               }              
+               else if(has_controlvalue==false && unknown_num>1 && !((Dnum>0 && Dbarnum>0))) { 
+                  Jfront.push_back(np->indx);
+               }
+            }
+         }// or
+				
+         else if  ( np->type == GATE_NOR) {
+            if(np->value==LOGIC_1)  { 
+               for(int jj=0;jj<(np->fin);jj++){
+                  if(np->unodes[jj]->value!=LOGIC_0 && np->unodes[jj]->value!=LOGIC_X) {
+                     return false;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     np->unodes[jj]->value = LOGIC_0;   
+                     imply.push_back(np->unodes[jj]->indx);
+                  }
+               }   
+            }
+            if(np->value==LOGIC_0) {
+               bool has_controlvalue=false; 
+               int unknown_num=0;
+               int oneXind=0; 
+               int Dnum=0; 
+               int Dbarnum=0;
+               for(int jj=0;jj<(np->fin);jj++) {
+                  if(np->unodes[jj]->value==LOGIC_1) { 
+                     has_controlvalue=true; 
+                     break;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     unknown_num++;  
+                     oneXind=jj;
+                  } else if (np->unodes[jj]->value==LOGIC_D) {
+                     Dnum++;
+                  } else if (np->unodes[jj]->value==LOGIC_DBAR) {
+                     Dbarnum++; 
+                  }
+               }
+               if(has_controlvalue==false && unknown_num==0) {
+                  if(Dnum==0 || Dbarnum==0) {
+                     return false;
+                  }
+               } else if (has_controlvalue==false && unknown_num ==1) {     
+                  if(!(Dnum>0 && Dbarnum>0)) {
+                     np->unodes[oneXind]->value = LOGIC_1;   
+                     imply.push_back(np->unodes[oneXind]->indx); 
+                  }
+               } else if (has_controlvalue==false && unknown_num>1 && !((Dnum>0 && Dbarnum>0))) {
+                  Jfront.push_back(np->indx);
+               }
+            }
+         } // nor
+
+         else if  ( np->type == GATE_NOT) {
+            if(np->value==LOGIC_0) {
+               if(np->unodes[0]->value==LOGIC_X) { 
+                  np->unodes[0]->value = LOGIC_1;   
+                  imply.push_back(np->unodes[0]->indx);
+               } else if(np->unodes[0]->value!=LOGIC_1) {
+                  return false;
+               }
+            }
+            if (np->value==LOGIC_1) {
+               if (np->unodes[0]->value==LOGIC_X) {
+                  np->unodes[0]->value = LOGIC_0;
+                  imply.push_back(np->unodes[0]->indx);
+               } else if (np->unodes[0]->value!=LOGIC_0) {
+                  return false;
+               }
+            }
+         } //not
+
+         else if  ( np->type == GATE_NAND) {
+            if(np->value==LOGIC_0)  { 
+               for(int jj=0;jj<(np->fin);jj++){
+                  if(np->unodes[jj]->value!=LOGIC_1 && np->unodes[jj]->value!=LOGIC_X) {
+                     return false;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     np->unodes[jj]->value = LOGIC_1;
+                     imply.push_back(np->unodes[jj]->indx);
+                  }
+               }   
+            }
+            if (np->value==LOGIC_1) {
+               bool has_controlvalue=false; 
+               int unknown_num=0;
+               int oneXind=0; 
+               int Dnum=0; 
+               int Dbarnum=0;
+               for(int jj=0;jj<(np->fin);jj++) {
+                  if(np->unodes[jj]->value==LOGIC_0) { 
+                     has_controlvalue=true; 
+                     break;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     unknown_num++;  
+                     oneXind=jj;
+                  } else if (np->unodes[jj]->value==LOGIC_D) {
+                     Dnum++; 
+                  } else if (np->unodes[jj]->value==LOGIC_DBAR) {
+                     Dbarnum++; 
+                  }
+               }
+               if (has_controlvalue==false && unknown_num==0) {
+                  if(Dnum==0 || Dbarnum==0) {
+                     return false;
+                  }
+               } else if (has_controlvalue==false && unknown_num ==1) {     
+                  if(!(Dnum>0 && Dbarnum>0)) {
+                     np->unodes[oneXind]->value =  LOGIC_0;   
+                     imply.push_back(np->unodes[oneXind]->indx); 
+                  }
+               } else if (has_controlvalue==false && unknown_num>1 && !((Dnum>0 && Dbarnum>0))) {
+                  Jfront.push_back(np->indx);
+               }
+            }
+         }// Nand
+         
+         else if  ( np->type == GATE_AND) {
+            if(np->value==LOGIC_1)  { 
+               for(int jj=0;jj<(np->fin);jj++){
+                  if(np->unodes[jj]->value!=LOGIC_1 && np->unodes[jj]->value!=LOGIC_X) {
+                     return false;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     np->unodes[jj]->value = LOGIC_1;   
+                     imply.push_back(np->unodes[jj]->indx);
+                  }
+               }   
+            }
+            if(np->value==LOGIC_0) { 
+               bool has_controlvalue=false; 
+               int unknown_num=0;
+               int oneXind=0; 
+               int Dnum=0; 
+               int Dbarnum=0;
+               for(int jj=0;jj<(np->fin);jj++) {
+                  if(np->unodes[jj]->value==LOGIC_0) { 
+                     has_controlvalue=true; 
+                     break;
+                  } else if (np->unodes[jj]->value==LOGIC_X) {
+                     unknown_num++;  
+                     oneXind=jj;
+                  } else if (np->unodes[jj]->value==LOGIC_D) {
+                     Dnum++; 
+                  } else if (np->unodes[jj]->value==LOGIC_DBAR) {
+                     Dbarnum++; 
+                  }
+               }
+               if(has_controlvalue==false && unknown_num==0) {
+                  if(Dnum==0 || Dbarnum==0) { 
+                     return false;
+                  }
+               } else if(has_controlvalue==false && unknown_num ==1) {     
+                  if(!(Dnum>0 && Dbarnum>0)) {
+                  //else
+                  np->unodes[oneXind]->value = LOGIC_0;   
+                  imply.push_back(np->unodes[oneXind]->indx); }
+               } else if(has_controlvalue==false && unknown_num>1 && !((Dnum>0 && Dbarnum>0))) { 
+                  Jfront.push_back(np->indx);
+               }
+            }
+         } // and
+		}
+
+
+	   //forward imply								 
+      for(int jj=0;jj<(np->fout);jj++){
+         NSTRUC *np_out;		
+         np_out = &Node[np->dnodes[jj]->indx];	
+         if(np->dnodes[jj]->num == (check_fault.first) ) continue;
+         int Xnum=0;  
+         int Dnum=0;
+         int Dbarnum=0;
+         int Onenum=0;
+         int Zeronum=0;
+         int expect_outvalue= 0;
+         for(int jj=0;jj<(np_out->fin);jj++) {
+               if      (np_out->unodes[jj]->value==LOGIC_X) Xnum++;
+               else if (np_out->unodes[jj]->value==LOGIC_D) Dnum++;
+               else if (np_out->unodes[jj]->value==LOGIC_DBAR) Dbarnum++;
+               else if (np_out->unodes[jj]->value==LOGIC_1) Onenum++; 
+               else if (np_out->unodes[jj]->value==LOGIC_0) Zeronum++;
+         }
+
+         //branch
+         if(np_out->type==GATE_BRANCH){
+            if(np->value==LOGIC_0) { 
+               if(np_out->value==LOGIC_X) {
+                  np_out->value = LOGIC_0;
+                  imply.push_back(np_out->indx);
+               } else if (np_out->num!=(int)(check_fault.first) && !(np_out->value==LOGIC_0) && ! (np_out->value==LOGIC_DBAR)) {
+                  return false;
+               }
+            }
+            if(np->value==LOGIC_1) {
+               if(np_out->value==LOGIC_X) {
+                  np_out->value = LOGIC_1;
+                  imply.push_back(np_out->indx);
+               } else if (np_out->num!=(int)(check_fault.first) &&!(np_out->value==LOGIC_1) && ! (np_out->value==LOGIC_D)) {
+                  return false;
+               }
+            }
+            if(np->value==LOGIC_D || np->value==LOGIC_DBAR ) {
+               if(np_out->value==LOGIC_X) {
+                  np_out->value = np->value;   
+                  imply.push_back(np_out->indx);
+               }
+            }
+         }
+
+         else if(np_out->type==GATE_NOT){
+            if(np->value==LOGIC_0) {
+               if(np_out->value==LOGIC_X) {
+                  np_out->value = LOGIC_1;   
+                  imply.push_back(np_out->indx);
+               } else if (np_out->num!=(int)(check_fault.first) && !(np_out->value==LOGIC_1)  && ! (np_out->value==LOGIC_D) ) {
+                  return false;
+               }
+            }
+            if(np->value==LOGIC_1) { 
+               if(np_out->value==LOGIC_X) { 
+                  np_out->value = LOGIC_0;   
+                  imply.push_back(np_out->indx);
+               } else if (np_out->num!=(int)(check_fault.first) && !(np_out->value==LOGIC_0) && ! (np_out->value==LOGIC_DBAR)) {
+                  return false;
+               }
+            } 
+            if(np->value==LOGIC_D) { 
+               if(np_out->value==LOGIC_X) { 
+                  np_out->value = LOGIC_DBAR;   
+                  imply.push_back(np_out->indx);
+               }       
+            }
+            if(np->value==LOGIC_DBAR) { 
+               if(np_out->value==LOGIC_X) {
+                  np_out->value = LOGIC_D;   
+                  imply.push_back(np_out->indx);
+               }
+            }
+         }//not
+
+         else if(np_out->type==GATE_XOR){
+         //try to imply
+            if(np_out->value ==LOGIC_X && Xnum==0 ) { 
+               if(Dnum%2==0 && Dbarnum%2==0) {
+                  if(Onenum%2==1) {
+                     np_out->value=LOGIC_1;
+                  } else {
+                     np_out->value=LOGIC_0;
+                  } 
+                  imply.push_back(np_out->indx);
+               } else if (Dnum==Dbarnum && Onenum%2==1) {
+                  np_out->value=LOGIC_0; 
+                  imply.push_back(np_out->indx);
+               } else if(Dnum==Dbarnum && Onenum%2==0) {
+                  np_out->value=LOGIC_1; 
+                  imply.push_back(np_out->indx);
+               }
+            }
+            
+            // check
+            else if(np_out->value==LOGIC_1 && Xnum==0) { 
+               if(Dnum%2==0 && Dbarnum%2==0) {
+                  if(Onenum%2==1) {
+                     if(np_out->value==LOGIC_0) {
+                        return false;
+                     }
+                  }
+               } else if(Dnum==Dbarnum && Onenum%2==0) { 
+                  if(np_out->value==LOGIC_0) {
+                     return false;
+                  }
+               }
+            } else if(np_out->value==LOGIC_0 && Xnum==0) { 
+               if(Dnum%2==0 && Dbarnum%2==0) {
+                  if(Onenum%2==0) {
+                     if(np_out->value==LOGIC_1) {
+                        return false;
+                     }
+                  }
+               } else if(Dnum==Dbarnum && Onenum%2==1) {
+                  if(np_out->value==LOGIC_1) {
+                     return false;
+                  }
+               }
+            }
+         }//xor
+            
+         else if(np_out->type==GATE_OR){
+            //try to imply
+            if(np_out->value ==LOGIC_X ) { 
+               if(Onenum>0 ||  (Dnum>0&& Dbarnum>0)) {
+                  np_out->value=LOGIC_1; 
+                  imply.push_back(np_out->indx);
+               } else if (Xnum==0 && Zeronum==np_out->fin) {
+                  np_out->value=LOGIC_0; 
+                  imply.push_back(np_out->indx);
+               } else if( (Zeronum+Dnum) == np_out->fin) {
+                  np_out->value=LOGIC_D; 
+                  imply.push_back(np_out->indx);
+               } else if( (Zeronum+Dbarnum) == np_out->fin) {
+                  np_out->value=LOGIC_DBAR; 
+                  imply.push_back(np_out->indx);
+               }
+            }
+            // check
+            else if(np_out->value==LOGIC_1) {
+               if(!(Onenum>0 ||  (Dnum>0&& Dbarnum>0))) {
+                  return false;
+               }
+            } else if (np_out->value==LOGIC_0) {
+               if(!(Xnum==0 && Zeronum==np_out->fin)) {
+                  return false;
+               }
+            }
+         }//or
+      
+         else if(np_out->type==GATE_NOR) {
+            //try to imply
+            if(np_out->value ==LOGIC_X ) { 
+               if(Onenum>0 ||  (Dnum>0&& Dbarnum>0)) {
+                  np_out->value=LOGIC_0; 
+                  imply.push_back(np_out->indx);
+               } else if (Xnum==0 && Zeronum==np_out->fin) {
+                  np_out->value=LOGIC_1; 
+                  imply.push_back(np_out->indx);
+               } else if ((Zeronum+Dnum) == np_out->fin) {
+                  np_out->value=LOGIC_DBAR; 
+                  imply.push_back(np_out->indx);
+               } else if ((Zeronum+Dbarnum) == np_out->fin) {
+                  np_out->value=LOGIC_D; 
+                  imply.push_back(np_out->indx);
+               }
+            }
+            // check
+            else if(np_out->value==LOGIC_0) {
+               if (!(Onenum>0 ||  (Dnum>0&& Dbarnum>0))) {
+                  return false;
+               }
+            } else if (np_out->value==LOGIC_1) {
+               if (!(Xnum==0 && Zeronum==np_out->fin)) {
+                  return false;
+               }
+            }
+         }//nor
+
+         else if(np_out->type==GATE_NAND){
+            //try to imply
+            if(np_out->value ==LOGIC_X ) {
+               if(Zeronum>0 ||  (Dnum>0&& Dbarnum>0)) {
+                  np_out->value=LOGIC_1; 
+                  imply.push_back(np_out->indx);
+               } else if(Xnum==0 && Onenum==np_out->fin) {
+                  np_out->value=LOGIC_0; 
+                  imply.push_back(np_out->indx);
+               } else if((Onenum+Dnum) == np_out->fin) {
+                  np_out->value=LOGIC_DBAR; 
+                  imply.push_back(np_out->indx);
+               } else if((Onenum+Dbarnum) == np_out->fin) {
+                  np_out->value=LOGIC_D; 
+                  imply.push_back(np_out->indx);
+               }
+            }
+            // check
+            else if (np_out->value==LOGIC_1) { 
+               if(!(Zeronum>0 ||  (Dnum>0&& Dbarnum>0))) return false;
+            } else if (np_out->value==LOGIC_0) {
+               if(!(Xnum==0 && Onenum==np_out->fin)) return false;
+            }
+         }//nand
+      
+         else if(np_out->type==GATE_AND){
+            //try to imply
+               if(np_out->value ==LOGIC_X ) { 
+                     if(Zeronum>0 ||  (Dnum>0&& Dbarnum>0))    {np_out->value=LOGIC_0; imply.push_back(np_out->indx);}
+                     else if(Xnum==0 && Onenum==np_out->fin)   {np_out->value=LOGIC_1; imply.push_back(np_out->indx);}
+                     else if( (Onenum+Dnum) == np_out->fin)    {np_out->value=LOGIC_D; imply.push_back(np_out->indx);}
+                     else if( (Onenum+Dbarnum) == np_out->fin) {np_out->value=LOGIC_DBAR; imply.push_back(np_out->indx);}
+               }
+               // check
+               else if(np_out->value==LOGIC_0) { if(!(Zeronum>0 ||  (Dnum>0&& Dbarnum>0))) return false;}
+               else if(np_out->value==LOGIC_1) {if(!(Xnum==0 && Onenum==np_out->fin)) return false;}
+         }//and
+      }  								
+	}
+   
+   return true;
+}
+
+
+bool Dalg(int level) {
+	
+   int time_elapsed = (clock() - dalg_recursion_tStart)/(CLOCKS_PER_SEC);
+   if (time_elapsed > 1) {
+      return false;
+   }
+
+
+	// Dalg_count++;
+	// if(Dalg_count> 20000) return false;
+	for ( int kk=0;kk< Nnodes;kk++) {
+	   if( Node[kk].assign_level > level) {
+         Node[kk].value=LOGIC_X; 
+         Node[kk].assign_level=-1;
+      }
+	}
+
+	if(imply_and_check()) {
+		for(int kk=0; kk< imply.size(); kk++) { 
+         Node[imply[kk]].assign_level=level;  
+      }  
+		//getDfront();
+	} else {
+		for(int i=0; i<imply.size(); i++ ){  
+         Node[imply[i]].value=LOGIC_X; 
+         Node[imply[i]].assign_level=-1; 
+      }
+	   imply.clear(); 
+      return false;
+   }
+
+   imply.clear();
+   getDfront();
+   bool DatOut=false;
+   NSTRUC *np;
+   for(int i = 0; i<Npo; i++) {  // check D or D' at output
+      if(Poutput[i]->value==LOGIC_D||Poutput[i]->value==LOGIC_DBAR) {
+         DatOut=true;
+      }
+   }
+   // propagate D frontier to output
+   if(!DatOut) {
+      if(Dfront.size()==0) {
+         unassign(level-1); 
+         return false;
+      } else {
+         int iter_while= 0;
+         for(int i = 0; i<Dfront.size(); i++) {
+         
+         np = &Node[Dfront[i]];
+         
+         int Dnum=0; 
+         int Dbarnum=0, Onenum=0, Zeronum=0;
+         for(int j=0;j<(np->fin); j++ ) {
+            if(np->unodes[j]->value == LOGIC_D) Dnum++;
+            else if(np->unodes[j]->value == LOGIC_DBAR) Dbarnum++;
+            else if(np->unodes[j]->value == LOGIC_1) Onenum++;
+            else if(np->unodes[j]->value == LOGIC_0) Zeronum++;
+         }
+         
+         if ( (Dnum==0 && Dbarnum==0)|| np->value!=LOGIC_X ||(Dnum>0 && Dbarnum>0) ) {
+            continue;
+         }
+         
+         if(Dnum>0) {
+            if(np->type == GATE_OR || np->type== GATE_AND || np->type==GATE_BRANCH || np->type==GATE_XOR)      {   np->value=LOGIC_D; } 
+            else if(np->type ==GATE_NOR || np->type==GATE_NAND || np->type==GATE_NOT) {   np->value=LOGIC_DBAR; }
+            
+            imply.push_back(np->indx);
+            for(int j=0;j<(np->fin); j++ ){
+               if( np->unodes[j]->value == LOGIC_X) {
+                  if(np->type == GATE_OR || np->type==GATE_NOR || np->type==GATE_XOR) { np->unodes[j]->value=LOGIC_0; } 
+            else if(np->type ==GATE_NAND || np->type==GATE_AND) { np->unodes[j]->value=LOGIC_1; }
+            imply.push_back(np->unodes[j]->indx);
+            }
+         }	
+
+            
+         }
+         else if(Dbarnum>0) {
+            if(np->type == GATE_OR || np->type==GATE_AND  || np->type==GATE_BRANCH || np->type==GATE_XOR)      {   np->value=LOGIC_DBAR; } 
+            else if(np->type ==GATE_NOR || np->type==GATE_NAND || np->type==GATE_NOT) {   np->value=LOGIC_D; }
+            
+            imply.push_back(np->indx);
+            for(int j=0;j<(np->fin); j++ ){
+            if( np->unodes[j]->value ==LOGIC_X){
+            
+                              if(np->type ==GATE_OR || np->type==GATE_NOR || np->type==GATE_XOR) { np->unodes[j]->value=LOGIC_0; } 
+            else if(np->type == GATE_NAND || np->type==GATE_AND) { np->unodes[j]->value=LOGIC_1; }
+            imply.push_back(np->unodes[j]->indx);
+            }
+         }
+         
+         }
+         int pop_ind=Dfront[0];
+         
+            if(Dalg(level+1)) {
+               return true;
+            } else {  
+               unassign(level); 
+               getDfront();
+            }
+         }
+         unassign(level-1);
+         return false;
+      }
+   }
+	//check Jfront
+	vector<int> temp2; temp2.clear();
+	for(int i=0;i <Jfront.size();i++){
+	      int Xnum=0;
+			int Dnum=0;
+			int Dbarnum=0;
+			int Onenum=0;
+			int Zeronum=0;
+			np = &Node[Jfront[i]];
+			for(int j=0;j< np->fin ;j++){
+													if      (np->unodes[j]->value==LOGIC_X) Xnum++;
+													else if (np->unodes[j]->value==LOGIC_D) Dnum++;
+													else if (np->unodes[j]->value==LOGIC_DBAR) Dbarnum++;
+													else if (np->unodes[j]->value==LOGIC_1) Onenum++; 
+													else if (np->unodes[j]->value==LOGIC_0) Zeronum++;
+			}
+			if(Node[Jfront[i]].value==LOGIC_1 && np->type==GATE_OR) { // or 
+				if(Xnum>0 && !(Dnum>0&& Dbarnum>0) && Onenum==0) {temp2.push_back(Jfront[i]);}
+			}
+			else if(Node[Jfront[i]].value==LOGIC_1 && np->type==GATE_NAND) { //  nand
+				if(Xnum>0 && !(Dnum>0&& Dbarnum>0) && Zeronum==0) {temp2.push_back(Jfront[i]);}
+			}
+			else if(Node[Jfront[i]].value==LOGIC_0 && np->type==GATE_NOR){ // nor
+				if(Xnum>0 && !(Dnum>0&& Dbarnum>0) && Onenum==0 ) {temp2.push_back(Jfront[i]);}
+			}
+			else if(Node[Jfront[i]].value==LOGIC_0 && np->type==GATE_AND){ //and
+				if(Xnum>0 && !(Dnum>0&& Dbarnum>0) && Zeronum==0) {temp2.push_back(Jfront[i]);}
+			}
+	}
+	Jfront= temp2;
+	if(temp2.size()==0) return true;
+	for(int i=0;i <temp2.size();i++){
+			int Xnum=0;
+			int Dnum=0;
+			int Dbarnum=0;
+			int Onenum=0;
+			int Zeronum=0;
+			np = &Node[temp2[i]];
+			for(int j=0;j< np->fin ;j++){
+			    if(np->unodes[j]->value==LOGIC_X){
+					if(np->type==GATE_OR || np->type==GATE_NOR){
+					    np->unodes[j]->value =  LOGIC_1;   imply.push_back(np->unodes[j]->indx);	
+						 if(Dalg(level+1)) {return true;} else { unassign(level);}
+						np->unodes[j]->value =  LOGIC_0;   imply.push_back(np->unodes[j]->indx);
+						np->unodes[j]->assign_level= level;
+
+					}
+					else if(np->type==GATE_AND || np->type==GATE_NAND){
+						 np->unodes[j]->value = LOGIC_0;   imply.push_back(np->unodes[j]->indx);	
+						 if(Dalg(level+1)) {return true;} else { unassign(level);}
+						 np->unodes[j]->value =  LOGIC_1;   imply.push_back(np->unodes[j]->indx);
+						 np->unodes[j]->assign_level= level;
+						 
+					}
+				}
+			}
+			imply.clear();
+			unassign(level-1);
+			return false;
+	}
+}
+
+
+
+bool DalgCall(pair<int,int> fault){
+
+	Dfront.clear();
+	Jfront.clear(); 
+   imply.clear();
+   dalg_recursion_tStart = clock();
+	Dalg_count=0;
+   for(int kk=0;kk< Nnodes; kk++){
+      Node[kk].value= LOGIC_X; 
+      Node[kk].assign_level = -1;
+   }
+   NSTRUC *np =&Node[(int) (fault.first)];
+	check_fault = fault;
+   for(int kk=0;kk< np->fout;kk++){
+      Dfront.push_back(np->dnodes[kk]->indx);      // setup d frontier
+   }
+	if (fault.second == 0) {
+      np->value= LOGIC_D; 
+      if(np->type==GATE_BRANCH) {
+         np->unodes[0]->value=LOGIC_1; 
+      }
+      imply.push_back(np->indx);
+   } else {  
+      np->value= LOGIC_DBAR; 
+      if(np->type==GATE_BRANCH) {
+         np->unodes[0]->value=LOGIC_0; 
+      }
+      imply.push_back(np->indx);
+   }//D 
+	
+	bool find=Dalg(0);
+   
+   if(find) { 
+      vector<int> temp; 
+      temp.clear();
+      for(int i=0;i<Npi  ;i++){
+         if(Pinput[i]->value==LOGIC_D) {
+            temp.push_back(1);
+         } else if(Pinput[i]->value==LOGIC_DBAR) {
+            temp.push_back(0);
+         } else {
+            temp.push_back(Pinput[i]->value);
+         }
+      }
+      test_vectors.push_back(temp);
+      return true;
+   }
+   else return false;
+}
+
+
+int dalg (char *cp) {
+
+   char faultNode_buf[MAXLINE], faultValue_buf[MAXLINE];
+   sscanf(cp, "%s %s", faultNode_buf, faultValue_buf);
+
+   int faultNode = stoi(faultNode_buf);
+   int faultValue = stoi(faultValue_buf);
+   int faultNodeIndx;
+
+   lev();
+
+   for (int i = 0; i < Nnodes; i++) {
+      if (Node[i].num == faultNode) {
+         faultNodeIndx = Node[i].indx;
+      }
+   }
+
+   DalgCall(make_pair(faultNodeIndx, faultValue));
+
+   int initial;
+   if (test_vectors.size() != 0) {
+      string output_file = circuitName + "_DALG_" + faultNode_buf + "@" + faultValue_buf + ".txt";
+      ofstream output_test_pattern_file;
+      output_test_pattern_file.open(output_file);
+      if ( output_test_pattern_file ) {
+         initial = 0;
+         for(int i=0;i<Npi  ;i++){
+            if (initial == 1) {
+               output_test_pattern_file << ",";
+            }
+            initial = 1;
+            output_test_pattern_file << Pinput[i]->num;
+         }
+         output_test_pattern_file << endl;
+         initial = 0;
+
+         for (int j=0; j<test_vectors.size(); j++){
+            vector<int> tmp = test_vectors[j];
+            initial = 0;
+            for(int m=0;m< tmp.size(); m++){
+               if (initial == 1) {
+                        output_test_pattern_file << ",";
+               }
+               initial = 1;
+               if (tmp[m] == LOGIC_X) {
+                  output_test_pattern_file << "X";
+               } else {
+                  output_test_pattern_file << tmp[m];
+               }
+            }
+            output_test_pattern_file << endl;
+         } 
+      }
+      output_test_pattern_file.close();
+      return 0;
+   } else {
+      return 1;
+   }
+}
+
+
+
 int atpg_det(char *cp) {
    // time
    // read
@@ -1945,11 +2757,15 @@ int atpg_det(char *cp) {
    // report
 
    // start clock
-   clock_t tStart = clock();
+   const auto before = std::chrono::system_clock::now();
+   //clock_t tStart = clock();
 
    char circuit_name[MAXLINE], alg_name[MAXLINE];
    sscanf(cp, "%s %s", circuit_name, alg_name);
    
+   string alg_name_str = alg_name;
+   transform(alg_name_str.begin(), alg_name_str.end(), alg_name_str.begin(), ::toupper);
+
    // read circuit
    cread((circuit_name));
 
@@ -1990,42 +2806,68 @@ int atpg_det(char *cp) {
       return 1;
    }
    
-   // podem
    vector<vector<int> > test_patterns;
    test_patterns.clear();
    vector<int> test_pattern;
    test_pattern.clear();
-   for (int i = 0; i < Nnodes; i++) {
-      if (Node[i].fin == 0) {
-         test_pattern.push_back(Node[i].num);
-      }
+   for (int i = 0; i < Npi; i++) {
+      test_pattern.push_back(Pinput[i]->num);
    }
    test_patterns.push_back(test_pattern);
    test_pattern.clear();
 
+   int node_num = 1;
    string alg;
-   // todo add dalg - similarly
-   for (int i=0; i<fault_list.size(); i++) {
-      string podem_arguments = to_string(fault_list[i].first) + " " + to_string(fault_list[i].second);
-      int x = podem(strdup(podem_arguments.c_str()));
-      alg = "PODEM";
-      if (x == 0) {  // if not timeout
-         for (int j = 0; j < Nnodes; j++) {
+   string in_pattern_buf = circuitName + "_DALG_" + to_string(fault_list[i].first) + "@" + to_string(fault_list[i].second) + ".txt";
 
-            if (Node[j].fin == 0) {
-               if (Node[j].value == LOGIC_X) {
-                  Node[j].value = rand()%2;
-               } else if (Node[j].value == LOGIC_D) {
-                  Node[j].value = LOGIC_1;
-               } else if (Node[j].value == LOGIC_DBAR) {
-                  Node[j].value = LOGIC_0;
+   for (int i=0; i<fault_list.size(); i++) {
+      if (alg_name_str == "DALG") {
+         string dalg_arguments = to_string(fault_list[i].first) + " " + to_string(fault_list[i].second);
+         int x = dalg(strdup(dalg_arguments.c_str()));
+         alg = "DALG";
+         if (x == 0) {
+            // read test patterns
+            vector<int> temp; 
+            temp.clear();
+            for(int i=0;i<Npi  ;i++){
+               if(Pinput[i]->value==LOGIC_D) {
+                  temp.push_back(1);
+               } else if(Pinput[i]->value==LOGIC_DBAR) {
+                  temp.push_back(0);
+               } else if (Pinput[i]->value==LOGIC_X) {
+                  temp.push_back(rand()%2);
+               } else {
+                  temp.push_back(Pinput[i]->value);
                }
-               test_pattern.push_back(Node[j].value);
             }
+            test_patterns.push_back(temp);
          }
-         test_patterns.push_back(test_pattern);
-         test_pattern.clear();
+      } else if (alg_name_str == "PODEM") {
+         string podem_arguments = to_string(fault_list[i].first) + " " + to_string(fault_list[i].second);
+         int x = podem(strdup(podem_arguments.c_str()));
+         alg = "PODEM";
+         if (x == 0) {  // if not timeout
+            for (int j = 0; j < Nnodes; j++) {
+
+               if (Node[j].fin == 0) {
+                  if (Node[j].value == LOGIC_X) {
+                     Node[j].value = rand()%2;
+                  } else if (Node[j].value == LOGIC_D) {
+                     Node[j].value = LOGIC_1;
+                  } else if (Node[j].value == LOGIC_DBAR) {
+                     Node[j].value = LOGIC_0;
+                  }
+                  test_pattern.push_back(Node[j].value);
+               }
+            }
+            test_patterns.push_back(test_pattern);
+            test_pattern.clear();
+         }
+      } else {
+         cout << "invalid argument" << endl;
+         return 1;
       }
+
    }
 
    // write patterns to output file
@@ -2080,14 +2922,15 @@ int atpg_det(char *cp) {
       cout << "Couldn't open file\n";
    }
 
+   const sec duration = std::chrono::system_clock::now() - before;
    string atpg_det_output_report = circuitName + "_" + alg + "_ATPG_report.txt";
    ofstream output_report;
    output_report.open(atpg_det_output_report);
    if ( output_report ) {
       output_report << "Algorithm: " << alg << endl;
       output_report << "Circuit: " << circuitName << endl;
-      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
-      output_report << "Time: " << (double)(clock() - tStart)/(CLOCKS_PER_SEC) << "s" << endl;
+      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << "%" << endl;
+      output_report << "Time: " << duration.count() << " seconds" << endl;
       output_report.close();
    } else {
       cout << "Couldn't create file\n";
@@ -2096,7 +2939,7 @@ int atpg_det(char *cp) {
 
    cout << "OK" << endl;
 
-   printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+   printf("Time taken: %.2fs\n", duration.count());
    return 0;
 }
 
@@ -2118,7 +2961,7 @@ int atpg(char *cp) {
    // report
 
    // start clock
-   clock_t tStart = clock();
+   const auto before = std::chrono::system_clock::now();
 
    char circuit_name[MAXLINE], alg_name[MAXLINE];
    sscanf(cp, "%s %s", circuit_name, alg_name);
@@ -2406,14 +3249,15 @@ int atpg(char *cp) {
       }
 
       // done with atpg -report
+   const sec duration = std::chrono::system_clock::now() - before;
 
    string atpg_det_output_report = circuitName + "_ATPG_report.txt";
    ofstream output_report;
    output_report.open(atpg_det_output_report);
    if ( output_report ) {
       output_report << "Circuit: " << circuitName << endl;
-      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << endl;
-      output_report << "Time: " << (double)(clock() - tStart)/(CLOCKS_PER_SEC) << "s" << endl;
+      output_report << "Fault Coverage: " << fixed << setprecision(2) << detected_faults.size()*100.0/fault_list.size() << "%" << endl;
+      output_report << "Time: " << duration.count()  << " seconds" << endl;
       output_report.close();
    } else {
       cout << "Couldn't create file\n";
@@ -2422,7 +3266,7 @@ int atpg(char *cp) {
 
    cout << "OK" << endl;
 
-   printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+   printf("Time taken: %.2fs\n", duration.count()) ;
    return 0;
 }
 
